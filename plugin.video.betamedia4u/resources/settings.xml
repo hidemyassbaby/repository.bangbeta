@@ -1,7 +1,7 @@
 <settings>
     <category label="IPTV Settings">
-        <setting id="server_url" type="text" label="Server URL" default="http://m3ufilter.media4u.top" option="hidden" />
-        <setting id="username" type="text" label="Username" default="media4u" />
-        <setting id="password" type="text" label="Password" default="media4u" option="hidden" />
+        <setting id="server_url" type="text" label="Server URL" />
+        <setting id="username" type="text" label="Username" />
+        <setting id="password" type="text" label="Password" option="hidden" />
     </category>
 </settings>
