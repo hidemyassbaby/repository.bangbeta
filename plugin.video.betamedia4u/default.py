@@ -1,99 +1,111 @@
-import xbmcaddon
-import xbmcplugin
-import xbmcgui
 import sys
 import urllib.parse
+import xbmcplugin
+import xbmcgui
+import xbmcaddon
+import xbmc
 import requests
-import xml.etree.ElementTree as ET
 
-# Kodi addon settings
-ADDON = xbmcaddon.Addon()
-USERNAME = ADDON.getSetting("username")
-PASSWORD = ADDON.getSetting("password")
-BASE_URL = "https://m3ufilter.media4u.top"
+addon = xbmcaddon.Addon()
+SERVER = addon.getSetting("server_url").strip()
+USERNAME = addon.getSetting("username").strip()
+PASSWORD = addon.getSetting("password").strip()
 
-# API Endpoints
-CATEGORY_URL = f"{BASE_URL}/player_api.php?username={USERNAME}&password={PASSWORD}&action=get_live_categories"
-M3U_URL = f"{BASE_URL}/get.php?username={USERNAME}&password={PASSWORD}&type=m3u_plus"
-
-# Get handle
 HANDLE = int(sys.argv[1])
+BASE_URL = sys.argv[0]
 
+def build_url(query):
+    return BASE_URL + '?' + urllib.parse.urlencode(query)
 
-def get_categories():
-    """Fetch Live TV categories from API."""
+def fetch_api(endpoint):
+    url = f"{SERVER}/{endpoint}?username={USERNAME}&password={PASSWORD}"
     try:
-        response = requests.get(CATEGORY_URL)
-        return response.json() if response.status_code == 200 else []
+        return requests.get(url, timeout=10).json()
     except:
-        return []
+        xbmcgui.Dialog().notification("My IPTV", "Connection error", xbmcgui.NOTIFICATION_ERROR)
+        return {}
 
-
-def get_m3u():
-    """Fetch and parse M3U playlist."""
-    try:
-        response = requests.get(M3U_URL)
-        return response.text if response.status_code == 200 else ""
-    except:
-        return ""
-
-
-def parse_m3u(m3u_data):
-    """Parse M3U file into structured channel data."""
-    channels = []
-    lines = m3u_data.splitlines()
-    
-    for i in range(len(lines)):
-        if lines[i].startswith("#EXTINF"):
-            details = lines[i]
-            url = lines[i + 1] if i + 1 < len(lines) else ""
-            name = details.split(",")[-1]
-            group = "Unknown"
-            
-            if "group-title" in details:
-                group = details.split("group-title=\"")[1].split("\"")[0]
-            
-            channels.append({"name": name, "url": url, "group": group})
-    
-    return channels
-
-
-def build_category_list():
-    """Display categories in Kodi."""
-    categories = get_categories()
-    for category in categories:
-        url = f"{sys.argv[0]}?action=list&category={urllib.parse.quote(category['category_name'])}"
-        li = xbmcgui.ListItem(label=category['category_name'])
-        xbmcplugin.addDirectoryItem(HANDLE, url, li, True)
+def list_main():
+    xbmcplugin.setPluginCategory(HANDLE, 'My IPTV')
+    xbmcplugin.setContent(HANDLE, 'videos')
+    for label, mode in [('Live TV', 'live_categories'), ('Movies', 'vod_categories'), ('TV Shows', 'series_categories'), ('Search', 'search')]:
+        li = xbmcgui.ListItem(label=label)
+        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': mode}), li, True)
     xbmcplugin.endOfDirectory(HANDLE)
 
-
-def build_channel_list(category):
-    """Display channels in the selected category."""
-    m3u_data = get_m3u()
-    channels = parse_m3u(m3u_data)
-    
-    for channel in channels:
-        if channel['group'].lower() == category.lower():
-            li = xbmcgui.ListItem(label=channel['name'])
-            li.setInfo('video', {"Title": channel['name']})
-            li.setProperty('IsPlayable', 'true')
-            xbmcplugin.addDirectoryItem(HANDLE, channel['url'], li, False)
-    
+def list_grouped_categories(content_type):
+    cat_map = {
+        'live_categories': 'get_live_categories',
+        'vod_categories': 'get_vod_categories',
+        'series_categories': 'get_series_categories'
+    }
+    api = cat_map[content_type]
+    categories = fetch_api(f"player_api.php?action={api}")
+    for cat in categories:
+        li = xbmcgui.ListItem(label=cat['category_name'])
+        xbmcplugin.addDirectoryItem(HANDLE, build_url({
+            'mode': content_type.replace('_categories', ''),
+            'cat_id': cat['category_id']
+        }), li, True)
     xbmcplugin.endOfDirectory(HANDLE)
 
+def list_items(content_type, cat_id, search_term=None):
+    all_data = fetch_api("player_api.php")
+    type_map = {
+        'live': 'live_streams',
+        'vod': 'movie_streams',
+        'series': 'series'
+    }
+    content_list = all_data.get(type_map[content_type], [])
 
-def router():
-    """Router to handle navigation."""
-    params = urllib.parse.parse_qs(sys.argv[2][1:])
-    action = params.get('action', [None])[0]
-    category = params.get('category', [None])[0]
-    
-    if action == 'list' and category:
-        build_channel_list(category)
+    for item in content_list:
+        if cat_id and str(item.get('category_id')) != cat_id:
+            continue
+        if search_term and search_term.lower() not in item.get('name', '').lower():
+            continue
+
+        name = item.get('name')
+        stream_id = item.get('stream_id')
+        stream_icon = item.get('stream_icon') or ""
+        
+        if content_type == 'live':
+            stream_url = f"{SERVER}/live/{USERNAME}/{PASSWORD}/{stream_id}.m3u8"
+        else:
+            stream_url = f"{SERVER}/movie/{USERNAME}/{PASSWORD}/{stream_id}.mp4"
+
+        li = xbmcgui.ListItem(label=name)
+        li.setArt({'thumb': stream_icon, 'icon': stream_icon, 'poster': stream_icon})
+        li.setInfo('video', {'title': name})
+        li.setProperty('inputstream', 'inputstream.adaptive')
+        li.setProperty('inputstream.adaptive.manifest_type', 'hls')
+        li.setMimeType('application/vnd.apple.mpegurl')
+        li.setPath(stream_url)
+        xbmcplugin.addDirectoryItem(HANDLE, stream_url, li, False)
+
+    xbmcplugin.endOfDirectory(HANDLE)
+
+def search():
+    keyboard = xbmc.Keyboard('', 'Search IPTV')
+    keyboard.doModal()
+    if keyboard.isConfirmed():
+        term = keyboard.getText()
+        list_items('live', None, search_term=term)
+        list_items('vod', None, search_term=term)
+        list_items('series', None, search_term=term)
     else:
-        build_category_list()
+        xbmcplugin.endOfDirectory(HANDLE)
 
+def router(paramstring):
+    params = dict(urllib.parse.parse_qsl(paramstring))
+    mode = params.get('mode')
+    if mode in ['live_categories', 'vod_categories', 'series_categories']:
+        list_grouped_categories(mode)
+    elif mode in ['live', 'vod', 'series']:
+        list_items(mode, params.get('cat_id'))
+    elif mode == 'search':
+        search()
+    else:
+        list_main()
 
-if __name__ == "__main__":
-    router()
+if __name__ == '__main__':
+    router(sys.argv[2][1:])
