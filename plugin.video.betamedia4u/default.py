@@ -72,7 +72,7 @@ def fetch_m3u(url):
         return ""
 
 def parse_m3u(data):
-    pattern = re.compile(r'#EXTINF:-1.*?tvg-logo="([^"]*)".*?group-title="([^"]*)".*?,(.*?)\n(.*?)\n', re.DOTALL)
+    pattern = re.compile(r'#EXTINF:-1.*?tvg-logo="(.*?)".*?group-title="(.*?)".*?,(.*?)\n(.*?)\n', re.DOTALL)
     return pattern.findall(data)
 
 def list_m3u_group_category(group_type):
