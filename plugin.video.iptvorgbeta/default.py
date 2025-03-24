@@ -176,15 +176,37 @@ def search_channels():
 
 # ------------ SETTINGS ------------
 def show_settings():
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'update'}), xbmcgui.ListItem(label='Update Channels Now'), False)
-    if not os.path.exists(PIN_FILE):
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'set_pin'}), xbmcgui.ListItem(label='Set PIN'), False)
-    else:
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'change_pin'}), xbmcgui.ListItem(label='Change PIN'), False)
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'reset_pin'}), xbmcgui.ListItem(label='Reset PIN'), False)
+    last_updated_path = os.path.join(CACHE_PATH, 'last_updated.txt')
+    last_updated = 'Never'
+    if os.path.exists(last_updated_path):
+        with open(last_updated_path, 'r') as f:
+            last_updated = f.read().strip()
 
-    dev_label = f"Developer Mode: {'ON' if is_developer_mode() else 'OFF'}"
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'toggle_dev'}), xbmcgui.ListItem(label=dev_label), False)
+    xbmcplugin.addDirectoryItem(HANDLE, '', xbmcgui.ListItem(label=f'[I]Last Updated: {last_updated}[/I]'), False)
+    dev_status = "ON" if is_developer_mode() else "OFF"
+    dev_status_label = f"Developer Mode: [B]{dev_status}[/B]"
+    xbmc.log(f"[IPTV-Org] Developer Mode Status: {dev_status}", xbmc.LOGINFO)
+    xbmcplugin.setPluginCategory(HANDLE, 'IPTV-Org Settings')
+
+    li = xbmcgui.ListItem(label='Update TV')
+    li.setInfo('video', {'title': 'Refresh live TV channels now'})
+    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'update_tv'}), li, False)
+
+    if not os.path.exists(PIN_FILE):
+        li_set = xbmcgui.ListItem(label='Set Adult Content PIN')
+        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'set_pin'}), li_set, False)
+    else:
+        li_change = xbmcgui.ListItem(label='Change PIN (requires current PIN)')
+        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'change_pin'}), li_change, False)
+
+        li_reset = xbmcgui.ListItem(label='Reset PIN (requires master password)')
+        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'reset_pin'}), li_reset, False)
+
+    dev_status = "ON" if is_developer_mode() else "OFF"
+    dev_color = "[COLOR=green]ON[/COLOR]" if dev_status == "ON" else "[COLOR=red]OFF[/COLOR]"
+    li_dev = xbmcgui.ListItem(label=f'Developer Mode ({dev_color})', offscreen=True)
+    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'toggle_dev'}), li_dev, False)
+
     xbmcplugin.endOfDirectory(HANDLE)
 
 def set_pin():
