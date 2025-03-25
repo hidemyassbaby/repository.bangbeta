@@ -1,0 +1,6 @@
+<window>
+    <defaultcontrol always="true">10</defaultcontrol>
+    <controls>
+        <label id="1" label="Kleanix Wizard" width="1280" height="50" align="center" font="font13" />
+    </controls>
+</window>
