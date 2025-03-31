@@ -8,358 +8,270 @@ import requests
 import re
 import os
 import time
-import hashlib
 import json
-import base64
 from xbmcvfs import translatePath
 from collections import defaultdict
+import traceback
+import xml.etree.ElementTree as ET
+from datetime import datetime
 
-# Helper to build plugin URLs
-def build_url(query):
-    return sys.argv[0] + '?' + urllib.parse.urlencode(query)
-
+# Constants
 addon = xbmcaddon.Addon()
-HANDLE = int(sys.argv[1])
-BASE_URL = sys.argv[0]
+HANDLE = int(sys.argv[1]) if len(sys.argv) > 1 else -1
+BASE_URL = sys.argv[0] if len(sys.argv) > 0 else ""
 
-M3U_URL_OBFUSCATED = "aHR0cHM6Ly9pcHR2LW9yZy5naXRodWIuaW8vaXB0di9pbmRleC5jYXRlZ29yeS5tM3U="
-CACHE_EXPIRY = 3600
+M3U_URL = "http://tvpass.org/playlist/m3u"
+EPG_URL = "https://tvpass.org/epg.xml"
+
 CACHE_PATH = translatePath(addon.getAddonInfo('profile')).rstrip('/')
 if not os.path.exists(CACHE_PATH):
     os.makedirs(CACHE_PATH)
 
 FAVOURITES_FILE = os.path.join(CACHE_PATH, "favourites.json")
-PIN_FILE = os.path.join(CACHE_PATH, "pin.lock")
 SETUP_FILE = os.path.join(CACHE_PATH, ".setupdone")
 DEV_MODE_FILE = os.path.join(CACHE_PATH, ".devmode")
+M3U_CACHE_FILE = os.path.join(CACHE_PATH, "channels.m3u")
+EPG_CACHE_FILE = os.path.join(CACHE_PATH, "epg.xml")
 
-HEADERS = {
-    "User-Agent": "Dalvik/2.1.0 (Linux; Android 9) IPTV",
-    "Accept": "*/*",
-    "Accept-Encoding": "gzip",
-    "Connection": "Keep-Alive"
-}
+# Utilities
+def log_error(e):
+    xbmc.log(f"[TV Pass ERROR] {str(e)}\n{traceback.format_exc()}", xbmc.LOGERROR)
 
-ADULT_KEYWORDS = ["xxx", "adult", "18+", "porn", "erotic"]
-
-# ------------------ PIN & Developer Mode ------------------
-def save_pin(pin):
-    hashed = hashlib.sha256(pin.encode()).hexdigest()
-    with open(PIN_FILE, 'w') as f:
-        f.write(hashed)
-
-def verify_pin(pin):
-    if not os.path.exists(PIN_FILE):
-        return False
-    hashed = hashlib.sha256(pin.encode()).hexdigest()
-    with open(PIN_FILE, 'r') as f:
-        return f.read() == hashed
-
-def prompt_for_pin():
-    pin = xbmcgui.Dialog().input("Enter PIN", type=xbmcgui.INPUT_NUMERIC)
-    return pin if verify_pin(pin) else None
+def build_url(query):
+    return BASE_URL + '?' + urllib.parse.urlencode(query)
 
 def is_developer_mode():
     return os.path.exists(DEV_MODE_FILE)
 
 def toggle_developer_mode():
-    if is_developer_mode():
-        os.remove(DEV_MODE_FILE)
-        xbmcgui.Dialog().notification("Developer Mode", "Disabled", xbmcgui.NOTIFICATION_INFO, 3000)
-        xbmc.executebuiltin("Container.Refresh")  # Auto-refresh
-    else:
-        password = xbmcgui.Dialog().input("Enter Developer Password", type=xbmcgui.INPUT_ALPHANUM)
-        if password == 'bangdev':  # bangdev
-            with open(DEV_MODE_FILE, 'w') as f:
-                f.write("enabled")
-            xbmcgui.Dialog().notification("Developer Mode", "Enabled", xbmcgui.NOTIFICATION_INFO, 3000)
+    try:
+        if is_developer_mode():
+            os.remove(DEV_MODE_FILE)
+            xbmcgui.Dialog().notification("Developer Mode", "Disabled", xbmcgui.NOTIFICATION_INFO, 3000)
             xbmc.executebuiltin("Container.Refresh")
         else:
-            xbmcgui.Dialog().ok("Access Denied", "Incorrect password.")
+            password = xbmcgui.Dialog().input("Enter Developer Password", type=xbmcgui.INPUT_ALPHANUM)
+            if password == 'bangdev':
+                with open(DEV_MODE_FILE, 'w') as f:
+                    f.write("enabled")
+                xbmcgui.Dialog().notification("Developer Mode", "Enabled", xbmcgui.NOTIFICATION_INFO, 3000)
+                xbmc.executebuiltin("Container.Refresh")
+            else:
+                xbmcgui.Dialog().ok("Access Denied", "Incorrect password.")
+    except Exception as e:
+        log_error(e)
 
-# ------------------ Settings Menu ------------------
-def show_settings():
-    last_updated_path = os.path.join(CACHE_PATH, 'last_updated.txt')
-    last_updated = 'Never'
-    if os.path.exists(last_updated_path):
-        with open(last_updated_path, 'r') as f:
-            last_updated = f.read().strip()
+# Cache loaders
+def update_cache(force=False):
+    try:
+        m3u_expired = not os.path.exists(M3U_CACHE_FILE) or time.time() - os.path.getmtime(M3U_CACHE_FILE) > 86400
+        epg_expired = not os.path.exists(EPG_CACHE_FILE) or time.time() - os.path.getmtime(EPG_CACHE_FILE) > 86400
 
-    xbmcplugin.addDirectoryItem(HANDLE, '', xbmcgui.ListItem(label=f'[I]Last Updated: {last_updated}[/I]'), False)
-    dev_status = "ON" if is_developer_mode() else "OFF"
-    dev_status_label = f"Developer Mode: [B]{dev_status}[/B]"
-    xbmc.log(f"[IPTV-Org] Developer Mode Status: {dev_status}", xbmc.LOGINFO)
-    xbmcplugin.setPluginCategory(HANDLE, 'IPTV-Org Settings')
+        if force or m3u_expired or epg_expired:
+            progress = xbmcgui.DialogProgress()
+            progress.create("TV Pass", "Fetching latest data")
+            if force or m3u_expired:
+                progress.update(10, "Updating playlist")
+                m3u = requests.get(M3U_URL, timeout=10)
+                with open(M3U_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    f.write(m3u.text)
+            if force or epg_expired:
+                progress.update(60, "Updating EPG data")
+                epg = requests.get(EPG_URL, timeout=10)
+                with open(EPG_CACHE_FILE, 'w', encoding='utf-8') as f:
+                    f.write(epg.text)
+            progress.update(100, "Complete")
+            time.sleep(0.5)
+            progress.close()
+    except Exception as e:
+        log_error(e)
+        xbmcgui.Dialog().notification("TV Pass", f"Cache update failed: {str(e)}", xbmcgui.NOTIFICATION_ERROR, 5000)
 
-    li = xbmcgui.ListItem(label='Update TV')
-    li.setInfo('video', {'title': 'Refresh live TV channels now'})
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'update_tv'}), li, False)
-
-    if not os.path.exists(PIN_FILE):
-        li_set = xbmcgui.ListItem(label='Set Adult Content PIN')
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'set_pin'}), li_set, False)
+def get_cached_m3u():
+    if os.path.exists(M3U_CACHE_FILE):
+        with open(M3U_CACHE_FILE, 'r', encoding='utf-8') as f:
+            return f.read()
     else:
-        li_change = xbmcgui.ListItem(label='Change PIN (requires current PIN)')
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'change_pin'}), li_change, False)
+        update_cache(force=True)
+        return get_cached_m3u()
 
-        li_reset = xbmcgui.ListItem(label='Reset PIN (requires master password)')
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'reset_pin'}), li_reset, False)
-
-    dev_status = "ON" if is_developer_mode() else "OFF"
-    dev_color = "[COLOR=green]ON[/COLOR]" if dev_status == "ON" else "[COLOR=red]OFF[/COLOR]"
-    li_dev = xbmcgui.ListItem(label=f'Developer Mode ({dev_color})', offscreen=True)
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'dev_toggle'}), li_dev, False)
-
-    changelog = os.path.join(translatePath(addon.getAddonInfo('path')), 'changelog.txt')
-    if os.path.exists(changelog):
-        li2 = xbmcgui.ListItem(label='View Changelog')
-        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'view_changelog'}), li2, False)
-
-    li3 = xbmcgui.ListItem(label='Open Settings')
-    li3.setProperty('Addon.OpenSettings', addon.getAddonInfo('id'))
-    xbmcplugin.addDirectoryItem(HANDLE, f'ActivateWindow(10007,addons://user/{addon.getAddonInfo("id")}/)', li3, False)
-
-    xbmcplugin.endOfDirectory(HANDLE)
-
-# ------------------ Settings Actions ------------------
-def set_pin_from_settings():
-    pin = xbmcgui.Dialog().input("Set a 4-digit PIN", type=xbmcgui.INPUT_NUMERIC)
-    if pin and pin.isdigit() and len(pin) == 4:
-        save_pin(pin)
-        xbmcgui.Dialog().notification("PIN Set", "PIN saved.", xbmcgui.NOTIFICATION_INFO, 3000)
+def get_cached_epg():
+    if os.path.exists(EPG_CACHE_FILE):
+        return ET.parse(EPG_CACHE_FILE).getroot()
     else:
-        xbmcgui.Dialog().ok("Invalid PIN", "PIN must be exactly 4 digits.")
+        update_cache(force=True)
+        return get_cached_epg()
 
-def change_pin():
-    if not os.path.exists(PIN_FILE):
-        xbmcgui.Dialog().ok("PIN Not Set", "No PIN is currently set.")
-        return
-    current = xbmcgui.Dialog().input("Enter current PIN", type=xbmcgui.INPUT_NUMERIC)
-    if not verify_pin(current):
-        xbmcgui.Dialog().ok("Incorrect PIN", "The PIN you entered is incorrect.")
-        return
-    new_pin = xbmcgui.Dialog().input("Enter new PIN", type=xbmcgui.INPUT_NUMERIC)
-    if new_pin and new_pin.isdigit() and len(new_pin) == 4:
-        save_pin(new_pin)
-        xbmcgui.Dialog().notification("PIN Changed", "PIN has been updated.", xbmcgui.NOTIFICATION_INFO, 3000)
-    else:
-        xbmcgui.Dialog().ok("Invalid PIN", "PIN must be exactly 4 digits.")
+# EPG
+def get_epg_for_channel(channel_id, limit=5):
+    epg_data = get_cached_epg()
+    now = datetime.utcnow()
+    results = []
+    for programme in epg_data.findall("programme"):
+        if programme.attrib.get("channel") == channel_id:
+            start_str = programme.attrib.get("start").split()[0]
+            stop_str = programme.attrib.get("stop").split()[0]
+            start = datetime.strptime(start_str, "%Y%m%d%H%M%S")
+            stop = datetime.strptime(stop_str, "%Y%m%d%H%M%S")
+            if stop < now:
+                continue
+            title = programme.findtext("title", default="Unknown")
+            desc = programme.findtext("desc", default="")
+            results.append(f"[B]{start.strftime('%H:%M')}[/B] {title} - {desc}")
+            if len(results) >= limit:
+                break
+    return "\n".join(results) if results else "No upcoming programs."
 
-def reset_pin():
-    master = xbmcgui.Dialog().input("Enter master password", type=xbmcgui.INPUT_ALPHANUM)
-    if master == 'bangunlock':  # bangunlock  # Password hidden
-        os.remove(PIN_FILE)
-        new_pin = xbmcgui.Dialog().input("Set new PIN", type=xbmcgui.INPUT_NUMERIC)
-        if new_pin and new_pin.isdigit() and len(new_pin) == 4:
-            save_pin(new_pin)
-            xbmcgui.Dialog().notification("PIN Reset", "PIN has been reset and saved.", xbmcgui.NOTIFICATION_INFO, 3000)
-        else:
-            xbmcgui.Dialog().ok("Invalid PIN", "PIN must be exactly 4 digits.")
-    else:
-        xbmcgui.Dialog().ok("Incorrect Password", "The master password you entered is invalid.")
+# Favourites
+def load_favourites():
+    if os.path.exists(FAVOURITES_FILE):
+        with open(FAVOURITES_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return []
 
-# ------------------ M3U Parsing & Display ------------------
-def parse_m3u(data):
-    pattern = re.compile(r'#EXTINF:-1.*?tvg-logo="(.*?)".*?group-title="(.*?)".*?,(.*?)\n(.*?)\n', re.DOTALL)
-    return pattern.findall(data)
+def save_favourites(data):
+    with open(FAVOURITES_FILE, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2)
 
-def list_m3u_group_category():
-    raw_data = fetch_m3u()
-    groups = defaultdict(list)
-    for logo, group, name, url in parse_m3u(raw_data):
-        groups[group].append((logo, name, url))
+def is_favourite(url):
+    favs = load_favourites()
+    return any(f['url'] == url for f in favs)
 
-    for group in sorted(groups):
-        if any(word in group.lower() for word in ADULT_KEYWORDS):
-            if not is_developer_mode():
-                if not os.path.exists(PIN_FILE):
-                    xbmcgui.Dialog().notification("Restricted", "Set a PIN in Settings to view adult content.", xbmcgui.NOTIFICATION_WARNING, 3000)
-                    continue
-                if not verify_pin(prompt_for_pin() or ""):
-                    xbmcgui.Dialog().notification("Access Denied", "Incorrect PIN.", xbmcgui.NOTIFICATION_ERROR, 3000)
-                    continue
+def add_to_favourites(name, url, logo="", tvg_id=""):
+    favs = load_favourites()
+    if not any(f['url'] == url for f in favs):
+        favs.append({'name': name, 'url': url, 'logo': logo, 'tvg_id': tvg_id})
+        save_favourites(favs)
+        xbmcgui.Dialog().notification("TV Pass", "Added to favourites", xbmcgui.NOTIFICATION_INFO, 3000)
 
+def remove_from_favourites(url):
+    favs = load_favourites()
+    favs = [f for f in favs if f['url'] != url]
+    save_favourites(favs)
+    xbmcgui.Dialog().notification("TV Pass", "Removed from favourites", xbmcgui.NOTIFICATION_INFO, 3000)
+
+# Display
+def list_categories():
+    raw_data = get_cached_m3u()
+    pattern = re.compile(r'#EXTINF:-1 tvg-id="(.*?)" tvg-name="(.*?)"(?: tvg-logo="(.*?)")? group-title="(.*?)",(.*?)\n(https?://\S+)')
+    groups = sorted(set(entry[3] for entry in pattern.findall(raw_data)))
+    for group in groups:
         li = xbmcgui.ListItem(label=group)
-        url = build_url({'mode': 'm3u_group_items', 'group': group})
+        url = build_url({'mode': 'group', 'group': group})
         xbmcplugin.addDirectoryItem(HANDLE, url, li, True)
     xbmcplugin.endOfDirectory(HANDLE)
 
-def list_m3u_group_items(group):
-    raw_data = fetch_m3u()
-    favourites = []
-    if os.path.exists(FAVOURITES_FILE):
-        with open(FAVOURITES_FILE, 'r') as f:
-            favourites = json.load(f)
-    for logo, grp, name, url in parse_m3u(raw_data):
-        if grp != group:
+def list_group_channels(group):
+    raw_data = get_cached_m3u()
+    pattern = re.compile(r'#EXTINF:-1 tvg-id="(.*?)" tvg-name="(.*?)"(?: tvg-logo="(.*?)")? group-title="(.*?)",(.*?)\n(https?://\S+)')
+    for tvg_id, tvg_name, logo, group_title, name, url in pattern.findall(raw_data):
+        if group_title != group:
             continue
         li = xbmcgui.ListItem(label=name)
-        li.setArt({'thumb': logo})
+        if logo:
+            li.setArt({'thumb': logo})
         li.setInfo('video', {'title': name})
         li.setPath(url)
-
-        is_fav = any(f['url'] == url for f in favourites)
+        epg_info = get_epg_for_channel(tvg_id)
         context = []
-        if is_fav:
-            context.append(("Remove from IPTV-Org Favourites", f"RunPlugin({build_url({'mode': 'remove_favourite', 'name': name, 'url': url, 'logo': logo})})"))
+        if is_favourite(url):
+            context.append(("Remove from Favourites", f"RunPlugin({build_url({'mode': 'remove_favourite', 'url': url})})"))
         else:
-            context.append(("Add to IPTV-Org Favourites", f"RunPlugin({build_url({'mode': 'add_favourite', 'name': name, 'url': url, 'logo': logo})})"))
-        li.addContextMenuItems(context, replaceItems=True)
-
+            context.append(("Add to Favourites", f"RunPlugin({build_url({'mode': 'add_favourite', 'name': name, 'url': url, 'logo': logo, 'tvg_id': tvg_id})})"))
+        context.append(("View Full Schedule", f"XBMC.Notification(EPG for {name}, {epg_info.replace(',', '')}, 10000)"))
+        li.addContextMenuItems(context)
         xbmcplugin.addDirectoryItem(HANDLE, url, li, False)
     xbmcplugin.endOfDirectory(HANDLE)
 
 def list_favourites():
-    if not os.path.exists(FAVOURITES_FILE):
-        xbmcgui.Dialog().notification("Favourites", "No favourites found.", xbmcgui.NOTIFICATION_INFO, 3000)
-        xbmcplugin.endOfDirectory(HANDLE)
+    favs = load_favourites()
+    if not favs:
+        xbmcgui.Dialog().notification("TV Pass", "No favourites found.", xbmcgui.NOTIFICATION_INFO, 3000)
         return
-    with open(FAVOURITES_FILE, 'r') as f:
-        favs = json.load(f)
     for fav in favs:
         li = xbmcgui.ListItem(label=fav['name'])
-        li.setArt({'thumb': fav.get('logo', '')})
+        if fav.get('logo'):
+            li.setArt({'thumb': fav['logo']})
         li.setInfo('video', {'title': fav['name']})
         li.setPath(fav['url'])
-
-        # Add context menu item to remove favourite
+        epg_info = get_epg_for_channel(fav.get('tvg_id', ''))
         context = [
-            ("Remove from IPTV-Org Favourites", f"RunPlugin({build_url({'mode': 'remove_favourite', 'url': fav['url']})})")
+            ("Remove from Favourites", f"RunPlugin({build_url({'mode': 'remove_favourite', 'url': fav['url']})})"),
+            ("View Full Schedule", f"XBMC.Notification(EPG for {fav['name']}, {epg_info.replace(',', '')}, 10000)")
         ]
-        li.addContextMenuItems(context, replaceItems=True)
-
+        li.addContextMenuItems(context)
         xbmcplugin.addDirectoryItem(HANDLE, fav['url'], li, False)
     xbmcplugin.endOfDirectory(HANDLE)
 
-def search():
+def search_channels():
     query = xbmcgui.Dialog().input("Search Channels")
     if not query:
         return
-    raw_data = fetch_m3u()
-    results = [entry for entry in parse_m3u(raw_data) if query.lower() in entry[2].lower()]
-    if not results:
-        xbmcgui.Dialog().notification("Search", "No results found.", xbmcgui.NOTIFICATION_INFO, 3000)
-    for logo, group, name, url in results:
-        li = xbmcgui.ListItem(label=f"{name} [{group}]")
-        li.setArt({'thumb': logo})
+    raw_data = get_cached_m3u()
+    pattern = re.compile(r'#EXTINF:-1 tvg-id="(.*?)" tvg-name="(.*?)"(?: tvg-logo="(.*?)")? group-title="(.*?)",(.*?)\n(https?://\S+)')
+    matches = [entry for entry in pattern.findall(raw_data) if query.lower() in entry[4].lower()]
+    if not matches:
+        xbmcgui.Dialog().notification("TV Pass", "No channels found.", xbmcgui.NOTIFICATION_INFO, 3000)
+        return
+    for tvg_id, tvg_name, logo, group_title, name, url in matches:
+        li = xbmcgui.ListItem(label=name)
+        if logo:
+            li.setArt({'thumb': logo})
         li.setInfo('video', {'title': name})
         li.setPath(url)
+        epg_info = get_epg_for_channel(tvg_id)
+        context = []
+        if is_favourite(url):
+            context.append(("Remove from Favourites", f"RunPlugin({build_url({'mode': 'remove_favourite', 'url': url})})"))
+        else:
+            context.append(("Add to Favourites", f"RunPlugin({build_url({'mode': 'add_favourite', 'name': name, 'url': url, 'logo': logo, 'tvg_id': tvg_id})})"))
+        context.append(("View Full Schedule", f"XBMC.Notification(EPG for {name}, {epg_info.replace(',', '')}, 10000)"))
+        li.addContextMenuItems(context)
         xbmcplugin.addDirectoryItem(HANDLE, url, li, False)
     xbmcplugin.endOfDirectory(HANDLE)
 
-# ------------------ Route Additions ------------------
-# ------------------ Main Menu ------------------
-def run_first_time_setup():
-    if not os.path.exists(SETUP_FILE):
-        xbmcgui.Dialog().ok("Welcome", "Welcome to IPTV-Org TV Addon")
-        if xbmcgui.Dialog().yesno("Setup", "Would you like to set a PIN for adult channels?"):
-            while True:
-                pin = xbmcgui.Dialog().input("Set a 4-digit PIN", type=xbmcgui.INPUT_NUMERIC)
-                if not pin:
-                    xbmcgui.Dialog().notification("PIN Setup", "PIN not set. Adult content will be hidden.", xbmcgui.NOTIFICATION_INFO, 3000)
-                    break
-                elif len(pin) == 4 and pin.isdigit():
-                    save_pin(pin)
-                    xbmcgui.Dialog().notification("PIN Set", "PIN successfully saved.", xbmcgui.NOTIFICATION_INFO, 3000)
-                    break
-                else:
-                    xbmcgui.Dialog().ok("Invalid PIN", "PIN must be exactly 4 digits.")
-        fetch_m3u(force_refresh=True)
-        xbmcgui.Dialog().notification("IPTV-Org", "Channels updated.", xbmcgui.NOTIFICATION_INFO, 3000)
-        open(SETUP_FILE, 'w').close()
-
 def main_menu():
-    run_first_time_setup()
     if is_developer_mode():
-        dev_li = xbmcgui.ListItem(label='[B]Developer Mode[/B] [COLOR=green]ON[/COLOR]')
-        xbmcplugin.addDirectoryItem(HANDLE, '', dev_li, False)
-
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'favourites'}), xbmcgui.ListItem(label='Favourites'), True)
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'live_categories'}), xbmcgui.ListItem(label='Live TV'), True)
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'search'}), xbmcgui.ListItem(label='Search'), True)
-    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'settings'}), xbmcgui.ListItem(label='Settings'), True)
+        xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'dev_toggle'}), xbmcgui.ListItem('[B]Developer Mode[/B] [COLOR=green]ON[/COLOR]'), False)
+    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'categories'}), xbmcgui.ListItem('Live TV'), True)
+    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'favourites'}), xbmcgui.ListItem('Favourites'), True)
+    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'search'}), xbmcgui.ListItem('Search'), True)
+    xbmcplugin.addDirectoryItem(HANDLE, build_url({'mode': 'settings'}), xbmcgui.ListItem('Settings'), True)
     xbmcplugin.endOfDirectory(HANDLE)
 
-def fetch_m3u(force_refresh=False):
-    url = base64.b64decode(M3U_URL_OBFUSCATED).decode('utf-8')
-    cache_file = os.path.join(CACHE_PATH, "iptv_cache.m3u")
-    if os.path.exists(cache_file) and not force_refresh:
-        mtime = os.path.getmtime(cache_file)
-        if time.time() - mtime < CACHE_EXPIRY:
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                return f.read()
-
-    dialog = xbmcgui.DialogProgress()
-    dialog.create("IPTV-Org", "Updating Channels...")
-    try:
-        response = requests.get(url, headers=HEADERS, timeout=10)
-        response.raise_for_status()
-        content = response.text
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            f.write(content)
-        dialog.close()
-        with open(os.path.join(CACHE_PATH, 'last_updated.txt'), 'w') as log:
-            log.write(time.strftime('%d %b %Y - %I:%M %p'))
-        return content
-    except Exception as e:
-        dialog.close()
-        xbmcgui.Dialog().notification("Update Failed", str(e), xbmcgui.NOTIFICATION_ERROR, 5000)
-        return ""
-
-def add_favourite(name, url, logo):
-    favourites = []
-    if os.path.exists(FAVOURITES_FILE):
-        with open(FAVOURITES_FILE, 'r') as f:
-            favourites = json.load(f)
-    if not any(f['url'] == url for f in favourites):
-        favourites.append({'name': name, 'url': url, 'logo': logo})
-        with open(FAVOURITES_FILE, 'w') as f:
-            json.dump(favourites, f)
-    xbmc.executebuiltin("Container.Refresh")
-
-def remove_favourite(url):
-    if os.path.exists(FAVOURITES_FILE):
-        with open(FAVOURITES_FILE, 'r') as f:
-            favourites = json.load(f)
-        favourites = [f for f in favourites if f['url'] != url]
-        with open(FAVOURITES_FILE, 'w') as f:
-            json.dump(favourites, f)
-    xbmc.executebuiltin("Container.Refresh")
+if not os.path.exists(SETUP_FILE):
+    update_cache(force=True)
+    with open(SETUP_FILE, 'w') as f:
+        f.write('done')
 
 def router(paramstring):
-    params = dict(urllib.parse.parse_qsl(paramstring))
-    mode = params.get('mode')
-
-    if mode == 'settings':
-        show_settings()
-    elif mode == 'set_pin':
-        set_pin_from_settings()
-    elif mode == 'change_pin':
-        change_pin()
-    elif mode == 'reset_pin':
-        reset_pin()
-    elif mode == 'dev_toggle':
-        toggle_developer_mode()
-    elif mode == 'view_changelog':
-        view_changelog()
-    elif mode == 'update_tv':
-        fetch_m3u(force_refresh=True)
-        xbmcgui.Dialog().notification("IPTV-Org", "Channels updated.", xbmcgui.NOTIFICATION_INFO, 3000)
-    elif mode == 'live_categories':
-        list_m3u_group_category()
-    elif mode == 'favourites':
-        list_favourites()
-    elif mode == 'm3u_group_items':
-        list_m3u_group_items(params.get('group'))
-    elif mode == 'search':
-        search()
-    elif mode == 'add_favourite':
-        add_favourite(params.get('name'), params.get('url'), params.get('logo'))
-    elif mode == 'remove_favourite':
-        remove_favourite(params.get('url'))
-    else:
-        main_menu()
+    try:
+        params = dict(urllib.parse.parse_qsl(paramstring))
+        mode = params.get('mode')
+        if mode == 'dev_toggle':
+            toggle_developer_mode()
+        elif mode == 'categories':
+            list_categories()
+        elif mode == 'group':
+            group = params.get('group')
+            if group:
+                list_group_channels(group)
+        elif mode == 'search':
+            search_channels()
+        elif mode == 'favourites':
+            list_favourites()
+        elif mode == 'add_favourite':
+            add_to_favourites(params['name'], params['url'], params.get('logo', ''), params.get('tvg_id', ''))
+        elif mode == 'remove_favourite':
+            remove_from_favourites(params['url'])
+        else:
+            main_menu()
+    except Exception as e:
+        log_error(e)
+        xbmcgui.Dialog().notification("TV Pass", "Startup failed", xbmcgui.NOTIFICATION_ERROR, 3000)
 
 if __name__ == '__main__':
-    router(sys.argv[2][1:])
-        
+    if len(sys.argv) > 2 and sys.argv[2]:
+        router(sys.argv[2][1:])
+    else:
+        router("")
