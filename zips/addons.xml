@@ -41,6 +41,20 @@
     </extension>
 </addon>
 
+  <addon id="plugin.video.cheapiesdeals" name="Cheapies Deals" version="1.0.0" provider-name="Bang">
+      <requires>
+          <import addon="xbmc.python" version="3.0.0"/>
+      </requires>
+      <extension point="xbmc.python.pluginsource" library="addon.py">
+          <provides>video</provides>
+      </extension>
+      <extension point="xbmc.addon.metadata">
+          <summary>Displays deals from Cheapies.nz</summary>
+          <description>Fetches and displays the latest deals from Cheapies.nz RSS feed.</description>
+          <platform>all</platform>
+      </extension>
+  </addon>
+
 <addon id="plugin.video.iptvorgbeta" name="IPTV-Org TV BETA" version="1.2" provider-name="Bang">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
