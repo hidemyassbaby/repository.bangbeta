@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<addons>
+<addon id="plugin.audio.plainsmedia"
+       name="Plains Media"
+       version="1.0.6"
+       provider-name="Bang">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.python.plugin" library="main.py" />
+    <extension point="xbmc.addon.metadata">
+        <summary>Live radio and podcasts from Christchurch’s Plains Media</summary>
+        <description>Tune into the heart of Ōtautahi with live radio and podcasts from Plains Media. From community voices to eclectic music in over 18 languages, it’s your place for stories, sounds, and culture — streaming live or on-demand, straight from Christchurch.</description>
+        <platform>all</platform>
+    </extension>
+</addon>
+
+<addon id="plugin.program.kleanix"
+       name="Kleanix Wizard"
+       version="1.0.0"
+       provider-name="Bang">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en">All-in-One Kodi Wizard and Maintenance Tool</summary>
+        <description lang="en">Kleanix: Clean, backup, and restore your Kodi builds with ease.</description>
+        <platform>all</platform>
+    </extension>
+    <extension point="xbmc.python.script" library="default.py">
+        <provides>executable</provides>
+    </extension>
+</addon>
+
+<addon id="plugin.video.betamedia4u" name="Media4u TV Beta" version="1.3" provider-name="Bang">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+        <import addon="script.module.requests"/>
+    </requires>
+
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en_GB">Media4u TV for Kodi</summary>
+        <description lang="en_GB">Watch Live TV from Media4u</description>
+        <platform>all</platform>
+        <language>en_GB</language>
+        <license>GPL-2.0-or-later</license>
+        <disclaimer>This add-on does not host any content.</disclaimer>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.jpg</fanart>
+        </assets>
+    </extension>
+</addon>
+
+<addon id="plugin.audio.plainsmedia"
+       name="Plains Media"
+       version="1.0.2"
+       provider-name="Bang">
+
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+
+    <extension point="xbmc.python.plugin"
+               library="main.py" />
+
+    <extension point="xbmc.addon.metadata">
+        <summary>Live radio and podcasts from Christchurch’s Plains Media</summary>
+        <description>Tune into the heart of Ōtautahi with live radio and podcasts from Plains Media. From community voices to eclectic music in over 18 languages, it’s your place for stories, sounds, and culture — streaming live or on-demand, straight from Christchurch.</description>
+        <platform>all</platform>
+        <license>MIT</license>
+        <language>en</language>
+        <source>https://plainsmedia.org.nz/</source>
+        <website>https://plainsmedia.org.nz/</website>
+    </extension>
+
+</addon>
+
+<addon id="plugin.video.iptvorgbeta" name="IPTV-Org TV BETA" version="1.2" provider-name="Bang">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+        <import addon="script.module.requests"/>
+    </requires>
+
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en_GB">IPTV-Org TV For Kodi</summary>
+        <description lang="en_GB">BETA VERSION Collection of publicly available IPTV channels from all over the world</description>
+        <platform>all</platform>
+        <language>en_GB</language>
+        <license>GPL-2.0-or-later</license>
+        <disclaimer>This add-on does not host any content.</disclaimer>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.jpg</fanart>
+        </assets>
+    </extension>
+</addon>
+
+<addon id="plugin.video.tvpassbeta" name="TV Pass Beta" version="1.0.2" provider-name="Bang">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+        <import addon="script.module.requests"/>
+    </requires>
+
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en_GB">TV Pass Beta</summary>
+        <description lang="en_GB">TV Pass Channels From around the world</description>
+        <platform>all</platform>
+        <language>en_GB</language>
+        <license>GPL-2.0-or-later</license>
+        <disclaimer>This add-on does not host any content.</disclaimer>
+        <assets>
+            <icon>icon.png</icon>
+            <fanart>fanart.jpg</fanart>
+        </assets>
+    </extension>
+</addon>
+
+<addon id="repository.bangbeta" name="Bang Beta" version="1.1" provider-name="Bang">
+	<extension point="xbmc.addon.repository" name="Bang">
+		<dir>
+			<info compressed="false">https://raw.githubusercontent.com/hidemyassbaby/repository.bangbeta/master/zips/addons.xml</info>
+			<checksum>https://raw.githubusercontent.com/hidemyassbaby/repository.bangbeta/master/zips/addons.xml.md5</checksum>
+			<datadir zip="true">https://raw.githubusercontent.com/hidemyassbaby/repository.bangbeta/master/zips/</datadir>
+		</dir>
+		<dir>
+			<info compressed="false">https://raw.githubusercontent.com/Gujal00/smrzips/master/addons.xml</info>
+			<checksum>https://raw.githubusercontent.com/Gujal00/smrzips/master/addons.xml.md5</checksum>
+			<datadir zip="true">https://raw.githubusercontent.com/Gujal00/smrzips/master/zips/</datadir>
+		</dir>
+      	<dir>
+            <info compressed="false">https://raw.githubusercontent.com/teamuniversal/scrapers/master/_modules4all/zips/addons.xml</info>
+            <checksum>https://raw.githubusercontent.com/teamuniversal/scrapers/master/_modules4all/zips/addons.xml.md5</checksum>
+            <datadir zip="true">https://raw.githubusercontent.com/teamuniversal/scrapers/master/_modules4all/zips/</datadir>
+        </dir>
+		<dir>
+			<info compressed="false">https://raw.githubusercontent.com/totalrevolution/python-koding/master/zips/addons.xml</info>
+            <checksum>https://raw.githubusercontent.com/totalrevolution/python-koding/master/zips/addons.xml.md5</checksum>
+            <datadir zip="true">https://raw.githubusercontent.com/totalrevolution/python-koding/master/zips/</datadir>
+		</dir>
+	</extension>
+	<extension point="xbmc.addon.metadata">
+		<summary lang="en"></summary>
+		<description lang="en">Bang Beta</description>
+		<genre></genre>
+		<assets>
+      <icon>icon.png</icon>
+      <fanart>fanart.jpg</fanart>
+    </assets>
+	</extension>
+</addon>
+</addons>
