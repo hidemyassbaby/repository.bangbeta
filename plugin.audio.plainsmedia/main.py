@@ -1,49 +1,46 @@
-import sys
+import urllib.request
 import urllib.parse
+import re
 import xbmcplugin
 import xbmcgui
-import requests
+import sys
 
-API_URL = "https://kingfisher.api.firecrest.systems/station/programmes/latest-episodes?page=1&pageSize=25"
-API_KEY = "eX8svQBlcC40ppWPUyzrO3oVnsLlLGqJ9jw7zGkk"
+BASE_URL = 'https://accessradio.org'
+PROGRAMMES_URL = f'{BASE_URL}/station?SID=1e641e21-9297-4a53-adfc-8ceca841c90a'
+IMAGE_BASE_URL = 'https://images.accessmedia.nz/StationFolder/plainsfm/Images/'
 
-def build_url(query):
-    return sys.argv[0] + '?' + urllib.parse.urlencode(query)
+addon_handle = int(sys.argv[1])
+xbmcplugin.setContent(addon_handle, 'audio')
 
-def list_latest_episodes():
-    headers = {
-        'x-api-key': API_KEY,
-        'accept': 'application/json'
-    }
-    response = requests.get(API_URL, headers=headers)
-    data = response.json()
+def sanitize_title(title):
+    # Remove special characters for image filenames
+    return re.sub(r'[^A-Za-z0-9]', '', title)
 
-    for item in data.get("items", []):
-        title = item.get("title", "Untitled")
-        audio_url = item.get("audio", {}).get("url")
-        if not audio_url:
-            continue
+def clean_html(raw_html):
+    # Remove any embedded HTML tags from names
+    return re.sub(r'<.*?>', '', raw_html).strip()
 
-        li = xbmcgui.ListItem(title)
-        li.setInfo('music', {'title': title})
-        li.setProperty('IsPlayable', 'true')
-        xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=audio_url, listitem=li, isFolder=False)
+def fetch_programmes():
+    """Fetch all programme names and IDs."""
+    req = urllib.request.Request(PROGRAMMES_URL, headers={'User-Agent': 'Mozilla/5.0'})
+    with urllib.request.urlopen(req, timeout=10) as response:
+        html = response.read().decode('utf-8')
 
-    xbmcplugin.endOfDirectory(int(sys.argv[1]))
+    # Extract programme IDs and titles
+    pattern = re.compile(r'<a href="/programme-page\?PID=([a-f0-9-]+)".*?>(.*?)</a>')
+    matches = pattern.findall(html)
+    return [(pid, clean_html(title)) for pid, title in matches]
 
-def router(paramstring):
-    params = urllib.parse.parse_qs(paramstring)
-    action = params.get('action', [None])[0]
-
-    if action is None:
-        # Main menu
-        url = build_url({'action': 'latest'})
-        li = xbmcgui.ListItem("Latest Episodes")
-        xbmcplugin.addDirectoryItem(handle=int(sys.argv[1]), url=url, listitem=li, isFolder=True)
-        xbmcplugin.endOfDirectory(int(sys.argv[1]))
-
-    elif action == 'latest':
-        list_latest_episodes()
+def list_programmes():
+    """Show list of shows with thumbnails."""
+    programmes = fetch_programmes()
+    for pid, title in programmes:
+        li = xbmcgui.ListItem(label=title)
+        image_name = sanitize_title(title)
+        image_url = f'{IMAGE_BASE_URL}{image_name}.png'
+        li.setArt({'thumb': image_url, 'icon': image_url, 'fanart': image_url})
+        xbmcplugin.addDirectoryItem(handle=addon_handle, url='', listitem=li, isFolder=False)
+    xbmcplugin.endOfDirectory(addon_handle)
 
 if __name__ == '__main__':
-    router(sys.argv[2][1:])
+    list_programmes()
