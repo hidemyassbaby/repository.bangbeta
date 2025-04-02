@@ -2,7 +2,7 @@
 <addons>
 <addon id="plugin.audio.plainsmedia"
        name="Plains Media"
-       version="1.0.1"
+       version="1.0.5"
        provider-name="Bang">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
