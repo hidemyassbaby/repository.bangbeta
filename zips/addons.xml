@@ -2,7 +2,7 @@
 <addons>
 <addon id="plugin.audio.plainsmedia"
        name="Plains Media"
-       version="1.0.0"
+       version="1.0.1"
        provider-name="Bang">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
@@ -10,8 +10,7 @@
     <extension point="xbmc.python.plugin" library="main.py" />
     <extension point="xbmc.addon.metadata">
         <summary>Live radio and podcasts from Christchurch’s Plains Media</summary>
-        <description>Tune into the heart of Ōtautahi with live radio and podcasts from Plains Media.
-From community voices to eclectic music in over 18 languages, it’s your place for stories, sounds, and culture — streaming live or on-demand, straight from Christchurch</description>
+        <description>Tune into the heart of Ōtautahi with live radio and podcasts from Plains Media. From community voices to eclectic music in over 18 languages, it’s your place for stories, sounds, and culture — streaming live or on-demand, straight from Christchurch.</description>
         <platform>all</platform>
     </extension>
 </addon>
