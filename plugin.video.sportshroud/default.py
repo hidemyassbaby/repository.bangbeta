@@ -25,6 +25,8 @@ def list_main_menu():
         for item in data:
             url = build_url({'name': item['name'], 'url': item['url']})
             li = xbmcgui.ListItem(label=item['name'])
+            if 'thumb' in item:
+                li.setArt({'thumb': item['thumb'], 'icon': item['thumb'], 'poster': item['thumb']})
             xbmcplugin.addDirectoryItem(handle=HANDLE, url=url, listitem=li, isFolder=True)
         xbmcplugin.endOfDirectory(HANDLE)
     except Exception as e:
@@ -35,6 +37,8 @@ def list_game_links(name, json_url):
         data = fetch_json(json_url)
         for stream in data.get('streams', []):
             li = xbmcgui.ListItem(label=stream['title'])
+            if 'thumb' in stream:
+                li.setArt({'thumb': stream['thumb'], 'icon': stream['thumb'], 'poster': stream['thumb']})
             li.setProperty("IsPlayable", "true")
             xbmcplugin.addDirectoryItem(handle=HANDLE, url=stream['url'], listitem=li)
         xbmcplugin.endOfDirectory(HANDLE)
