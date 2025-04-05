@@ -10,7 +10,7 @@ HANDLE = int(sys.argv[1])
 ARGS = urllib.parse.parse_qs(sys.argv[2][1:])
 
 # Remote menu file
-MENU_URL = "https://yourdomain.com/menu.json"
+MENU_URL = "https://raw.githubusercontent.com/hidemyassbaby/SportShroud/refs/heads/main/Main%20Menu/SportShroudMenu.json"
 
 def build_url(query):
     return BASE_URL + '?' + urllib.parse.urlencode(query)
