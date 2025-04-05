@@ -1,0 +1,17 @@
+<addon id="plugin.video.sportshroud"
+       name="SportShroud"
+       version="1.0.0"
+       provider-name="Bang">
+    <requires>
+        <import addon="xbmc.python" version="3.0.0"/>
+    </requires>
+    <extension point="xbmc.python.pluginsource" library="default.py">
+        <provides>video</provides>
+    </extension>
+    <extension point="xbmc.addon.metadata">
+        <summary lang="en_GB">SportShroud - TV</summary>
+        <description lang="en_GB">SportShroud TV Add-on for PPV Rugby, Golf & Sports Channels.</description>
+        <icon>icon.png</icon>
+        <platform>all</platform>
+    </extension>
+</addon>
