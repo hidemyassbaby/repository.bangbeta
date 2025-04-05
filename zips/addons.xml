@@ -116,7 +116,7 @@
 
 <addon id="plugin.video.sportshroud"
        name="SportShroud"
-       version="1.0.0"
+       version="1.0.1"
        provider-name="Bang">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
@@ -124,6 +124,7 @@
     <extension point="xbmc.addon.metadata">
         <summary>SportShroud - TV</summary>
         <description>SportShroud TV Addon</description>
+        <icon>icon.png</icon>
         <platform>all</platform>
     </extension>
     <extension point="xbmc.python.pluginsource" library="default.py">

@@ -2,7 +2,7 @@ import xbmcplugin
 import xbmcgui
 import sys
 import urllib.parse
-import requests
+import urllib.request
 import json
 
 BASE_URL = sys.argv[0]
@@ -10,15 +10,18 @@ HANDLE = int(sys.argv[1])
 ARGS = urllib.parse.parse_qs(sys.argv[2][1:])
 
 # Remote menu file
-MENU_URL = "https://raw.githubusercontent.com/hidemyassbaby/SportShroud/refs/heads/main/Main%20Menu/SportShroudMenu.json"
+MENU_URL = "https://raw.githubusercontent.com/hidemyassbaby/SportShroud/refs/heads/main/Main%20Menu/SportShroudMenu.jsonhttps://yourdomain.com/menu.json"
 
 def build_url(query):
     return BASE_URL + '?' + urllib.parse.urlencode(query)
 
+def fetch_json(url):
+    with urllib.request.urlopen(url) as response:
+        return json.loads(response.read().decode())
+
 def list_main_menu():
     try:
-        response = requests.get(MENU_URL)
-        data = response.json()
+        data = fetch_json(MENU_URL)
         for item in data:
             url = build_url({'name': item['name'], 'url': item['url']})
             li = xbmcgui.ListItem(label=item['name'])
@@ -29,8 +32,7 @@ def list_main_menu():
 
 def list_game_links(name, json_url):
     try:
-        response = requests.get(json_url)
-        data = response.json()
+        data = fetch_json(json_url)
         for stream in data.get('streams', []):
             li = xbmcgui.ListItem(label=stream['title'])
             li.setProperty("IsPlayable", "true")
