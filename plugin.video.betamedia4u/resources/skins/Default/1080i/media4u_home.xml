@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<window type="dialog">
+    <defaultcontrol always="true">100</defaultcontrol>
+    <coordinates>
+        <system>1</system>
+        <left>0</left>
+        <top>0</top>
+    </coordinates>
+    <controls>
+        <control type="image">
+            <left>0</left><top>0</top><width>1920</width><height>1080</height>
+            <texture colordiffuse="FF050913">white.png</texture>
+        </control>
+        <control type="image">
+            <left>0</left><top>0</top><width>1920</width><height>180</height>
+            <texture colordiffuse="EE0B1220">white.png</texture>
+        </control>
+        <control type="image">
+            <left>48</left><top>38</top><width>1824</width><height>988</height>
+            <texture colordiffuse="AA111827">white.png</texture>
+        </control>
+
+        <control type="label" id="200">
+            <left>84</left><top>58</top><width>1050</width><height>62</height>
+            <font>font37_title</font>
+            <textcolor>FFFFFFFF</textcolor>
+            <label>Beta Media4u</label>
+        </control>
+        <control type="label" id="201">
+            <left>88</left><top>120</top><width>1100</width><height>36</height>
+            <font>font13</font>
+            <textcolor>FFB8C7D9</textcolor>
+            <label>TV remote, keyboard and mouse ready</label>
+        </control>
+
+        <control type="button" id="300">
+            <left>1345</left><top>70</top><width>160</width><height>54</height>
+            <label>Search</label>
+            <font>font13_title</font>
+            <textcolor>FFFFFFFF</textcolor>
+            <focusedcolor>FFFFFFFF</focusedcolor>
+            <texturefocus colordiffuse="FF2563EB">white.png</texturefocus>
+            <texturenofocus colordiffuse="FF1E293B">white.png</texturenofocus>
+            <onleft>120</onleft><onright>301</onright><ondown>120</ondown>
+        </control>
+        <control type="button" id="301">
+            <left>1520</left><top>70</top><width>170</width><height>54</height>
+            <label>Settings</label>
+            <font>font13_title</font>
+            <textcolor>FFFFFFFF</textcolor>
+            <focusedcolor>FFFFFFFF</focusedcolor>
+            <texturefocus colordiffuse="FF0F766E">white.png</texturefocus>
+            <texturenofocus colordiffuse="FF1E293B">white.png</texturenofocus>
+            <onleft>300</onleft><onright>302</onright><ondown>120</ondown>
+        </control>
+        <control type="button" id="302">
+            <left>1705</left><top>70</top><width>120</width><height>54</height>
+            <label>Back</label>
+            <font>font13_title</font>
+            <textcolor>FFFFFFFF</textcolor>
+            <focusedcolor>FFFFFFFF</focusedcolor>
+            <texturefocus colordiffuse="FFDC2626">white.png</texturefocus>
+            <texturenofocus colordiffuse="FF1E293B">white.png</texturenofocus>
+            <onleft>301</onleft><ondown>120</ondown>
+        </control>
+
+        <control type="list" id="100">
+            <left>120</left><top>210</top><width>760</width><height>690</height>
+            <onright>300</onright><onup>300</onup><ondown>100</ondown>
+            <itemlayout width="760" height="92">
+                <control type="image"><left>0</left><top>6</top><width>720</width><height>80</height><texture colordiffuse="FF121A2A">white.png</texture></control>
+                <control type="label"><left>34</left><top>26</top><width>650</width><height>42</height><font>font16</font><textcolor>FFE5E7EB</textcolor><label>$INFO[ListItem.Label]</label></control>
+            </itemlayout>
+            <focusedlayout width="760" height="92">
+                <control type="image"><left>0</left><top>4</top><width>735</width><height>84</height><texture colordiffuse="FF2563EB">white.png</texture></control>
+                <control type="label"><left>34</left><top>26</top><width>650</width><height>42</height><font>font16</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+            </focusedlayout>
+        </control>
+
+        <control type="list" id="110">
+            <left>90</left><top>198</top><width>820</width><height>770</height>
+            <onright>120</onright><onup>300</onup><ondown>110</ondown>
+            <itemlayout width="820" height="76">
+                <control type="image"><left>0</left><top>5</top><width>780</width><height>66</height><texture colordiffuse="FF121A2A">white.png</texture></control>
+                <control type="label"><left>32</left><top>21</top><width>720</width><height>34</height><font>font13_title</font><textcolor>FFE5E7EB</textcolor><label>$INFO[ListItem.Label]</label></control>
+            </itemlayout>
+            <focusedlayout width="820" height="76">
+                <control type="image"><left>0</left><top>4</top><width>800</width><height>68</height><texture colordiffuse="FF0F766E">white.png</texture></control>
+                <control type="label"><left>32</left><top>21</top><width>720</width><height>34</height><font>font13_title</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+            </focusedlayout>
+        </control>
+
+        <control type="list" id="120">
+            <left>90</left><top>190</top><width>1115</width><height>790</height>
+            <onright>300</onright><onup>300</onup><ondown>120</ondown>
+            <itemlayout width="1115" height="88">
+                <control type="image"><left>0</left><top>5</top><width>1075</width><height>78</height><texture colordiffuse="FF111827">white.png</texture></control>
+                <control type="image"><left>18</left><top>15</top><width>58</width><height>58</height><texture>$INFO[ListItem.Icon]</texture><aspectratio>keep</aspectratio></control>
+                <control type="label"><left>96</left><top>14</top><width>900</width><height>34</height><font>font13_title</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+                <control type="label"><left>96</left><top>50</top><width>900</width><height>28</height><font>font12</font><textcolor>FF94A3B8</textcolor><label>$INFO[ListItem.Label2]</label></control>
+            </itemlayout>
+            <focusedlayout width="1115" height="88">
+                <control type="image"><left>0</left><top>3</top><width>1095</width><height>82</height><texture colordiffuse="FF1D4ED8">white.png</texture></control>
+                <control type="image"><left>18</left><top>15</top><width>58</width><height>58</height><texture>$INFO[ListItem.Icon]</texture><aspectratio>keep</aspectratio></control>
+                <control type="label"><left>96</left><top>14</top><width>930</width><height>34</height><font>font13_title</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label]</label></control>
+                <control type="label"><left>96</left><top>50</top><width>930</width><height>28</height><font>font12</font><textcolor>FFFFFFFF</textcolor><label>$INFO[ListItem.Label2]</label></control>
+            </focusedlayout>
+        </control>
+
+        <control type="image">
+            <left>1240</left><top>198</top><width>560</width><height>790</height>
+            <texture colordiffuse="FF0B1220">white.png</texture>
+        </control>
+        <control type="image" id="212">
+            <left>1290</left><top>245</top><width>460</width><height>250</height>
+            <texture>$INFO[ListItem.Icon]</texture>
+            <aspectratio>keep</aspectratio>
+        </control>
+        <control type="label" id="210">
+            <left>1290</left><top>535</top><width>460</width><height>42</height>
+            <font>font16</font>
+            <textcolor>FFFFFFFF</textcolor>
+            <label>Details</label>
+        </control>
+        <control type="textbox" id="211">
+            <left>1290</left><top>590</top><width>460</width><height>300</height>
+            <font>font12</font>
+            <textcolor>FFCBD5E1</textcolor>
+            <label>Now and next will show here when EPG data is available.</label>
+        </control>
+
+        <control type="label">
+            <left>90</left><top>1000</top><width>1720</width><height>34</height>
+            <font>font12</font>
+            <textcolor>FF94A3B8</textcolor>
+            <label>OK opens | Back returns | C or right-click opens options | Stop playback returns here</label>
+        </control>
+    </controls>
+</window>

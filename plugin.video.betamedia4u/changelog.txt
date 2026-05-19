@@ -1,0 +1,8 @@
+v5.0.3 Beta Media4u
+- Renamed add-on ID to plugin.video.betamedia4u
+- Fixed addon.xml XML declaration and version metadata
+- Safer Back handling for keyboard and TV remotes
+- Safer playback launch so GUI does not sit over streams
+- Faster category opening with short memory-only API reuse
+- Improved context menu support for C key and right-click
+- Extra protection around failed API loads and bad stream links
