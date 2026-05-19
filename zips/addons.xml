@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <addons>
-<addon id="plugin.video.betamedia4u" name="Beta Media4u" version="5.0.3" provider-name="Bang">
+<addon id="plugin.video.betamedia4u" name="Beta Media4u" version="5.1.0" provider-name="Bang">
     <requires>
         <import addon="xbmc.python" version="3.0.0"/>
         <import addon="script.module.requests"/>
@@ -12,7 +12,7 @@
 
     <extension point="xbmc.addon.metadata">
         <summary lang="en_GB">Beta Media4u for Kodi</summary>
-        <description lang="en_GB">Live TV, movies, series, search, favourites, and account tools for Beta Media4u. Updated for Kodi 21 and Kodi 22 with a full custom TV-style GUI.</description>
+        <description lang="en_GB">Live TV with Movies & TV Shows  - BETA Version GUI</description>
         <platform>all</platform>
         <language>en_GB</language>
         <license>GPL-2.0-or-later</license>
