@@ -972,10 +972,12 @@ class PlaybackManager:
             elif lower.endswith(".ts"):
                 try: item.setMimeType("video/mp2t")
                 except Exception: pass
-            # Save GUI position, then hand playback to Kodi and return immediately.
-            # Do NOT keep the plugin route blocked while the stream plays, because Kodi
-            # will keep showing the "Working..." spinner until this callback exits.
+            # Save the exact GUI position first. Keep the GUI visible while Kodi
+            # starts the stream, then close the GUI only after the player reports
+            # playback. This avoids the blank waiting gap and lets the service reopen
+            # the same list/item after playback stops.
             w.state_manager.save()
+            w.save_focus_marker()
             root = xbmcgui.Window(10000)
             root.setProperty("betamedia4u_playback_pending", "true")
             root.setProperty("betamedia4u_playback_started", "false")
@@ -987,15 +989,51 @@ class PlaybackManager:
                 xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
             except Exception:
                 pass
-            w.close_gui_safely()
-            xbmc.sleep(120)
+
             player = xbmc.Player()
             player.play(url, item, False)
-            xbmc.sleep(120)
+
+            # Wait briefly for playback to actually begin. Do not close the GUI
+            # before this, otherwise users see a delay/black screen before video.
+            started = False
+            deadline = time.time() + 12
+            while time.time() < deadline:
+                try:
+                    xbmc.executebuiltin("Dialog.Close(busydialog,true)")
+                    xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
+                except Exception:
+                    pass
+                try:
+                    if player.isPlaying() or player.isPlayingVideo():
+                        started = True
+                        break
+                except Exception:
+                    pass
+                xbmc.sleep(120)
+
+            if started:
+                root.setProperty("betamedia4u_playback_started", "true")
+                try:
+                    xbmc.executebuiltin("Dialog.Close(busydialog,true)")
+                    xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
+                except Exception:
+                    pass
+                w.close_gui_safely()
+                xbmc.sleep(80)
+                try:
+                    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+                except Exception:
+                    pass
+                return
+
+            # Stream did not start. Stay in the GUI, clear pending playback, and
+            # restore focus instead of reopening or starting anything again.
+            root.clearProperty("betamedia4u_playback_pending")
+            root.clearProperty("betamedia4u_playback_started")
+            root.clearProperty("betamedia4u_playback_started_at")
+            notify("Stream did not start", icon=xbmcgui.NOTIFICATION_ERROR)
             try:
-                xbmc.executebuiltin("Dialog.Close(busydialog,true)")
-                xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
-                xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+                w.focus_active_list()
             except Exception:
                 pass
             return
