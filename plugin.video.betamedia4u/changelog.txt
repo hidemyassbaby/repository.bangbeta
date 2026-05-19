@@ -1,6 +1,6 @@
-v5.1.5
-- Fixed Kodi focus restore after playback
-- Prevented focusing hidden/empty GUI controls
-- Safer return to the same screen and selected item
-- Reduced Back/keyboard crash risk after stream stop
-- Removed unsafe always-on default focus from GUI XML
+v5.1.6
+- Skin-independent GUI focus handling
+- Added addon-owned white texture so GUI does not depend on the active Kodi skin
+- Added safe fallback focus control to prevent control 100 focus crashes
+- Removed skin/window-specific focus handoff after playback
+- Improved compatibility with default Estuary and third-party skins

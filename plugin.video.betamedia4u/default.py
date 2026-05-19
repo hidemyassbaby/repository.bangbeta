@@ -1054,10 +1054,8 @@ class PlaybackManager:
                 safe_close_busy_dialogs()
                 w.close_gui_safely()
                 xbmc.sleep(80)
-                try:
-                    xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
-                except Exception:
-                    pass
+                # Do not focus Kodi's Videos window or any skin-specific control.
+                # Let Kodi's player own the screen after the dialog closes.
                 return
 
             # Stream did not start. Stay in the GUI, clear pending playback, and
@@ -1127,6 +1125,7 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
     CONTROL_SEARCH = 300
     CONTROL_SETTINGS = 301
     CONTROL_BACK = 302
+    CONTROL_FALLBACK = 900
 
     def onInit(self) -> None:
         self.nav = self.getControl(self.CONTROL_NAV)
@@ -1196,16 +1195,21 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
             pass
 
     def _safe_focus_control(self, control, fallback=None) -> bool:
-        """Focus a visible/list control only after Kodi has had time to draw it.
+        """Focus only controls owned by this WindowXML dialog.
 
-        Kodi v21/v22 can crash or lose keyboard input if setFocus() is called on
-        a hidden control or before the WindowXML list has finished rebuilding.
-        This guard prevents the repeated "asked to focus, but it can't" errors.
+        This avoids skin-specific Kodi window focus bugs. Some skins, including
+        default Estuary in some states, reject focus if a list is hidden, empty,
+        or not drawn yet. We never focus external Kodi windows, and if the target
+        is not ready we park focus on the tiny always-visible fallback control.
         """
-        for _attempt in range(6):
+        for _attempt in range(8):
             try:
                 if control is not None:
-                    # Lists must contain at least one item before Kodi can focus them reliably.
+                    try:
+                        if hasattr(control, "isVisible") and not control.isVisible():
+                            raise RuntimeError("hidden control cannot be focused")
+                    except AttributeError:
+                        pass
                     try:
                         if hasattr(control, "size") and control.size() <= 0:
                             raise RuntimeError("empty list cannot be focused")
@@ -1214,10 +1218,15 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
                     self.setFocus(control)
                     return True
             except Exception:
-                xbmc.sleep(60)
+                xbmc.sleep(70)
         if fallback is not None and fallback is not control:
             return self._safe_focus_control(fallback, None)
-        return False
+        try:
+            fb = self.getControl(self.CONTROL_FALLBACK)
+            self.setFocus(fb)
+            return True
+        except Exception:
+            return False
 
     def focus_screen(self, screen: str) -> None:
         self.show_only(screen)
