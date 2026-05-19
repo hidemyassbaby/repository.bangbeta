@@ -23,6 +23,8 @@ RESTORE_PROP = "betamedia4u_restore_gui"
 PENDING_PROP = "betamedia4u_playback_pending"
 STARTED_PROP = "betamedia4u_playback_started"
 STARTED_AT_PROP = "betamedia4u_playback_started_at"
+LOCK_PROP = "betamedia4u_playback_lock"
+LOCK_AT_PROP = "betamedia4u_playback_lock_at"
 
 
 def log(msg, level=xbmc.LOGINFO):
@@ -41,6 +43,8 @@ def clear_playback_props(clear_restore=False):
     ROOT.clearProperty(PENDING_PROP)
     ROOT.clearProperty(STARTED_PROP)
     ROOT.clearProperty(STARTED_AT_PROP)
+    ROOT.clearProperty(LOCK_PROP)
+    ROOT.clearProperty(LOCK_AT_PROP)
     if clear_restore:
         ROOT.clearProperty(RESTORE_PROP)
 
@@ -48,8 +52,11 @@ def clear_playback_props(clear_restore=False):
 def reopen_gui():
     try:
         close_busy_dialogs()
-        xbmc.sleep(300)
-        xbmc.executebuiltin(f'ActivateWindow(Videos,"{PLUGIN_URL}",return)')
+        xbmc.sleep(450)
+        # RunPlugin starts the custom WindowXML dialog without asking Kodi's
+        # Videos window to read a directory, which avoids GetDirectory failed
+        # errors and stuck Working spinners.
+        xbmc.executebuiltin(f'RunPlugin("{PLUGIN_URL}")')
     except Exception as exc:
         log(f"Could not reopen GUI: {exc}", xbmc.LOGWARNING)
 
@@ -66,6 +73,14 @@ def main():
             is_playing = bool(player.isPlaying() or player.isPlayingVideo())
         except Exception:
             is_playing = False
+
+        # Clear stale locks if Kodi was interrupted during startup.
+        try:
+            lock_at = int(ROOT.getProperty(LOCK_AT_PROP) or "0")
+        except Exception:
+            lock_at = 0
+        if lock_at and int(time.time()) - lock_at > 45 and not is_playing:
+            clear_playback_props(clear_restore=False)
 
         if pending:
             close_busy_dialogs()

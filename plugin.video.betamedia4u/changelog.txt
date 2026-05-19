@@ -1,6 +1,6 @@
-v5.1.3
-- GUI now stays open until the stream actually starts
-- Stream playback then switches to fullscreen video
-- Stopping playback returns to the same GUI screen and selected item
-- Improved Working spinner cleanup during stream startup
-- Safer failed-stream handling so it does not reopen or replay accidentally
+v5.1.5
+- Fixed Kodi focus restore after playback
+- Prevented focusing hidden/empty GUI controls
+- Safer return to the same screen and selected item
+- Reduced Back/keyboard crash risk after stream stop
+- Removed unsafe always-on default focus from GUI XML

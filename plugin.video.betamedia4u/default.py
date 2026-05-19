@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Media4u TV Kodi plugin
-Version 5.1.2 beta
+Version 5.1.5 beta
 Kodi 21 and Kodi 22 friendly, Python 3 only.
 """
 
@@ -35,7 +35,7 @@ FREE_PASS = "media4u"
 FIRST_RUN_KEY = "first_run_done"
 
 HEADERS = {
-    "User-Agent": "Kodi BetaMedia4u/5.1.2",
+    "User-Agent": "Kodi BetaMedia4u/5.1.5",
     "Accept": "application/json,text/plain,*/*",
     "Connection": "keep-alive",
 }
@@ -63,6 +63,49 @@ def log(message: str, level: int = xbmc.LOGINFO) -> None:
 
 def notify(message: str, title: str = ADDON_NAME, ms: int = 3000, icon: str = xbmcgui.NOTIFICATION_INFO) -> None:
     xbmcgui.Dialog().notification(title, message, icon, ms)
+
+END_DIRECTORY_SENT = False
+
+
+def safe_close_busy_dialogs() -> None:
+    """Close Kodi busy dialogs without raising if no dialog is open."""
+    try:
+        xbmc.executebuiltin("Dialog.Close(busydialog,true)")
+        xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
+    except Exception:
+        pass
+
+
+def safe_end_directory() -> None:
+    """Stop Kodi's plugin Working spinner before opening the custom GUI.
+
+    Kodi expects plugin:// calls to return a directory. Our custom GUI is a
+    modal window, so without ending the directory Kodi can keep the Working
+    dialog alive or report GetDirectory failed when the GUI closes.
+    """
+    global END_DIRECTORY_SENT
+    if END_DIRECTORY_SENT or HANDLE < 0:
+        return
+    try:
+        xbmcplugin.endOfDirectory(HANDLE, succeeded=True, updateListing=False, cacheToDisc=False)
+        END_DIRECTORY_SENT = True
+    except Exception:
+        pass
+
+
+def playback_lock_active() -> bool:
+    root = xbmcgui.Window(10000)
+    return root.getProperty("betamedia4u_playback_pending") == "true" or root.getProperty("betamedia4u_playback_lock") == "true"
+
+
+def set_playback_lock(active: bool) -> None:
+    root = xbmcgui.Window(10000)
+    if active:
+        root.setProperty("betamedia4u_playback_lock", "true")
+        root.setProperty("betamedia4u_playback_lock_at", str(int(time.time())))
+    else:
+        root.clearProperty("betamedia4u_playback_lock")
+        root.clearProperty("betamedia4u_playback_lock_at")
 
 
 def build_url(params: Dict[str, Any]) -> str:
@@ -314,14 +357,14 @@ def list_categories(action: str, next_mode: str, title: str) -> None:
     data = http_get_json(xc_api_url(f"player_api.php?action={action}"), use_cache=False)
     if not isinstance(data, list) or not data:
         add_action("No categories found", "main")
-        xbmcplugin.endOfDirectory(HANDLE)
+        safe_end_directory()
         return
     for cat in sorted_items(data, "category_name"):
         name = cat.get("category_name") or "Unknown"
         cat_id = str(cat.get("category_id") or "")
         if cat_id:
             add_folder(name, next_mode, {"cat_id": cat_id})
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def list_streams(content_type: str, cat_id: str = "", title: str = "") -> None:
@@ -337,7 +380,7 @@ def list_streams(content_type: str, cat_id: str = "", title: str = "") -> None:
     data = http_get_json_memory(xc_api_url(endpoint), ttl=5)
     if not isinstance(data, list) or not data:
         add_action("Nothing found", "main")
-        xbmcplugin.endOfDirectory(HANDLE)
+        safe_end_directory()
         return
 
     user, pwd, _label = get_effective_creds()
@@ -365,7 +408,7 @@ def list_streams(content_type: str, cat_id: str = "", title: str = "") -> None:
             set_art(li, icon)
             set_video_info(li, name, plot, year)
             xbmcplugin.addDirectoryItem(HANDLE, build_url({"mode": "series_seasons", "series_id": series_id}), li, True)
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def list_recent_vod() -> None:
@@ -383,7 +426,7 @@ def list_recent_vod() -> None:
         stream_id = item.get("stream_id")
         if stream_id is not None:
             add_playable(name, f"{SERVER}/movie/{quote(user)}/{quote(pwd)}/{stream_id}.{ext}", icon, item.get("plot") or "", item.get("year"))
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def list_series_seasons(series_id: str) -> None:
@@ -404,7 +447,7 @@ def list_series_seasons(series_id: str) -> None:
         set_art(li, season.get("cover") or cover)
         set_video_info(li, label, info.get("plot") or "")
         xbmcplugin.addDirectoryItem(HANDLE, build_url({"mode": "series_episodes", "series_id": series_id, "season": season_num}), li, True)
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def list_series_episodes(series_id: str, season_num: str) -> None:
@@ -426,7 +469,7 @@ def list_series_episodes(series_id: str, season_num: str) -> None:
         thumb = info.get("movie_image") or info.get("cover_big") or info.get("cover") or ""
         ext = ep.get("container_extension") or "mp4"
         add_playable(label, f"{SERVER}/series/{quote(user)}/{quote(pwd)}/{ep_id}.{ext}", thumb, info.get("plot") or "", info.get("year"))
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def favourites_menu() -> None:
@@ -439,7 +482,7 @@ def favourites_menu() -> None:
         for item in items:
             add_playable(item.get("name") or "Unknown", item.get("url") or "", item.get("thumb") or "")
         add_action("Clear all favourites", "clear_favourites")
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def normalize_text(value: Any) -> str:
@@ -506,7 +549,7 @@ def add_search_result(label: str, kind: str, item: Dict[str, Any], user: str, pw
 def search_menu(kind_filter: str = "all") -> None:
     term = xbmcgui.Dialog().input("Search Media4u TV", type=xbmcgui.INPUT_ALPHANUM).strip()
     if not term:
-        xbmcplugin.endOfDirectory(HANDLE)
+        safe_end_directory()
         return
 
     xbmcplugin.setPluginCategory(HANDLE, f"Search: {term}")
@@ -542,7 +585,7 @@ def search_menu(kind_filter: str = "all") -> None:
         add_action(f"No results for: {term}", "main")
         add_action("Tip: try one word only, like Batman, News, Sport, or 2025", "main")
         notify("No search results found")
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def search_type_menu() -> None:
@@ -553,7 +596,7 @@ def search_type_menu() -> None:
     add_folder("Search Live TV Channels", "search_live")
     add_folder("Search Movies", "search_vod")
     add_folder("Search Series", "search_series")
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def account_status() -> None:
@@ -591,7 +634,7 @@ def tools_menu() -> None:
     add_action("Open Modern GUI", "modern_gui")
     add_action("Classic Kodi Menu", "classic_main")
     add_action("Settings", "open_settings")
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 
@@ -956,6 +999,10 @@ class PlaybackManager:
             notify("Bad stream URL", icon=xbmcgui.NOTIFICATION_ERROR)
             log(f"Playback blocked, unsupported URL for {name}: {url}", xbmc.LOGERROR)
             return
+        if playback_lock_active():
+            log(f"Ignored duplicate playback request for {name}", xbmc.LOGWARNING)
+            return
+        set_playback_lock(True)
         try:
             item = xbmcgui.ListItem(label=name, path=url)
             set_art(item, thumb)
@@ -983,12 +1030,7 @@ class PlaybackManager:
             root.setProperty("betamedia4u_playback_started", "false")
             root.setProperty("betamedia4u_playback_started_at", str(int(time.time())))
             log(f"Opening stream via PlaybackManager: {name}")
-            w.set_busy(False)
-            try:
-                xbmc.executebuiltin("Dialog.Close(busydialog,true)")
-                xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
-            except Exception:
-                pass
+            safe_close_busy_dialogs()
 
             player = xbmc.Player()
             player.play(url, item, False)
@@ -998,11 +1040,7 @@ class PlaybackManager:
             started = False
             deadline = time.time() + 12
             while time.time() < deadline:
-                try:
-                    xbmc.executebuiltin("Dialog.Close(busydialog,true)")
-                    xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
-                except Exception:
-                    pass
+                safe_close_busy_dialogs()
                 try:
                     if player.isPlaying() or player.isPlayingVideo():
                         started = True
@@ -1013,11 +1051,7 @@ class PlaybackManager:
 
             if started:
                 root.setProperty("betamedia4u_playback_started", "true")
-                try:
-                    xbmc.executebuiltin("Dialog.Close(busydialog,true)")
-                    xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
-                except Exception:
-                    pass
+                safe_close_busy_dialogs()
                 w.close_gui_safely()
                 xbmc.sleep(80)
                 try:
@@ -1031,6 +1065,9 @@ class PlaybackManager:
             root.clearProperty("betamedia4u_playback_pending")
             root.clearProperty("betamedia4u_playback_started")
             root.clearProperty("betamedia4u_playback_started_at")
+            set_playback_lock(False)
+            w.set_busy(False)
+            safe_close_busy_dialogs()
             notify("Stream did not start", icon=xbmcgui.NOTIFICATION_ERROR)
             try:
                 w.focus_active_list()
@@ -1038,6 +1075,8 @@ class PlaybackManager:
                 pass
             return
         except Exception:
+            set_playback_lock(False)
+            safe_close_busy_dialogs()
             log("PlaybackManager failed:\n" + traceback.format_exc(), xbmc.LOGERROR)
             notify("Stream failed to open", icon=xbmcgui.NOTIFICATION_ERROR)
             try:
@@ -1156,15 +1195,53 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
         except Exception:
             pass
 
+    def _safe_focus_control(self, control, fallback=None) -> bool:
+        """Focus a visible/list control only after Kodi has had time to draw it.
+
+        Kodi v21/v22 can crash or lose keyboard input if setFocus() is called on
+        a hidden control or before the WindowXML list has finished rebuilding.
+        This guard prevents the repeated "asked to focus, but it can't" errors.
+        """
+        for _attempt in range(6):
+            try:
+                if control is not None:
+                    # Lists must contain at least one item before Kodi can focus them reliably.
+                    try:
+                        if hasattr(control, "size") and control.size() <= 0:
+                            raise RuntimeError("empty list cannot be focused")
+                    except AttributeError:
+                        pass
+                    self.setFocus(control)
+                    return True
+            except Exception:
+                xbmc.sleep(60)
+        if fallback is not None and fallback is not control:
+            return self._safe_focus_control(fallback, None)
+        return False
+
     def focus_screen(self, screen: str) -> None:
         self.show_only(screen)
+        xbmc.sleep(80)
         try:
             if screen == "nav":
-                self.setFocus(self.nav)
+                if self.nav.size() <= 0:
+                    self.setup_nav()
+                self._safe_focus_control(self.nav)
             elif screen == "categories":
-                self.setFocus(self.categories)
+                if self.categories.size() > 0:
+                    self._safe_focus_control(self.categories, self.nav)
+                else:
+                    self.show_only("nav")
+                    self._safe_focus_control(self.nav)
             else:
-                self.setFocus(self.items)
+                if self.items.size() > 0:
+                    self._safe_focus_control(self.items, self.categories if self.categories.size() else self.nav)
+                elif self.categories.size() > 0:
+                    self.show_only("categories")
+                    self._safe_focus_control(self.categories, self.nav)
+                else:
+                    self.show_only("nav")
+                    self._safe_focus_control(self.nav)
         except Exception:
             pass
 
@@ -1568,9 +1645,11 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
             self.save_focus_marker()
             self.playback_manager.play(li)
         finally:
-            # PlaybackManager may close the GUI. If it does not, make sure the UI is usable again.
+            # Do not clear busy while Kodi is still starting playback, otherwise
+            # duplicate OK/mouse events can start the same stream twice.
             try:
-                self.set_busy(False)
+                if not playback_lock_active():
+                    self.set_busy(False)
             except Exception:
                 pass
 
@@ -1682,14 +1761,16 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
             ADDON.openSettings()
 
     def focus_active_list(self) -> None:
-        """Return focus from top-bar buttons to the list that is visible on the current screen."""
+        """Return focus from top-bar buttons to the visible list safely."""
         try:
             if self.active_screen == "items" and self.items.size() > 0:
-                self.setFocus(self.items)
+                self._safe_focus_control(self.items, self.categories if self.categories.size() else self.nav)
             elif self.active_screen == "categories" and self.categories.size() > 0:
-                self.setFocus(self.categories)
+                self._safe_focus_control(self.categories, self.nav)
             else:
-                self.setFocus(self.nav)
+                if self.nav.size() <= 0:
+                    self.setup_nav()
+                self._safe_focus_control(self.nav)
         except Exception:
             pass
 
@@ -1911,6 +1992,8 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
 
 def modern_gui() -> None:
     try:
+        safe_end_directory()
+        safe_close_busy_dialogs()
         win = ModernHomeWindow("media4u_home.xml", ADDON.getAddonInfo("path"), "Default", "1080i")
         win.doModal()
         del win
@@ -1933,7 +2016,7 @@ def main_menu() -> None:
     add_folder("Search", "search")
     add_folder("Favourites", "favourites")
     add_folder("Tools", "tools")
-    xbmcplugin.endOfDirectory(HANDLE)
+    safe_end_directory()
 
 
 def router(paramstring: str) -> None:

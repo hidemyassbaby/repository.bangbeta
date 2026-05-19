@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <window type="dialog">
-    <defaultcontrol always="true">100</defaultcontrol>
+    <defaultcontrol>100</defaultcontrol>
     <coordinates>
         <system>1</system>
         <left>0</left>
@@ -41,7 +41,7 @@
             <focusedcolor>FFFFFFFF</focusedcolor>
             <texturefocus colordiffuse="FF2563EB">white.png</texturefocus>
             <texturenofocus colordiffuse="FF1E293B">white.png</texturenofocus>
-            <onleft>120</onleft><onright>301</onright><ondown>120</ondown>
+            <onleft>100</onleft><onright>301</onright><ondown>100</ondown>
         </control>
         <control type="button" id="301">
             <left>1520</left><top>70</top><width>170</width><height>54</height>
@@ -51,7 +51,7 @@
             <focusedcolor>FFFFFFFF</focusedcolor>
             <texturefocus colordiffuse="FF0F766E">white.png</texturefocus>
             <texturenofocus colordiffuse="FF1E293B">white.png</texturenofocus>
-            <onleft>300</onleft><onright>302</onright><ondown>120</ondown>
+            <onleft>300</onleft><onright>302</onright><ondown>100</ondown>
         </control>
         <control type="button" id="302">
             <left>1705</left><top>70</top><width>120</width><height>54</height>
@@ -61,7 +61,7 @@
             <focusedcolor>FFFFFFFF</focusedcolor>
             <texturefocus colordiffuse="FFDC2626">white.png</texturefocus>
             <texturenofocus colordiffuse="FF1E293B">white.png</texturenofocus>
-            <onleft>301</onleft><ondown>120</ondown>
+            <onleft>301</onleft><ondown>100</ondown>
         </control>
 
         <control type="list" id="100">
