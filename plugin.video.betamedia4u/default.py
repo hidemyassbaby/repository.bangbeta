@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
 Media4u TV Kodi plugin
-Version 5.0.3 beta
+Version 5.1.2 beta
 Kodi 21 and Kodi 22 friendly, Python 3 only.
 """
 
@@ -11,6 +11,8 @@ import json
 import os
 import sys
 import time
+import threading
+import traceback
 import urllib.parse
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
@@ -33,7 +35,7 @@ FREE_PASS = "media4u"
 FIRST_RUN_KEY = "first_run_done"
 
 HEADERS = {
-    "User-Agent": "Kodi BetaMedia4u/5.0.3",
+    "User-Agent": "Kodi BetaMedia4u/5.1.2",
     "Accept": "application/json,text/plain,*/*",
     "Connection": "keep-alive",
 }
@@ -766,6 +768,276 @@ def li_from_state(data: Dict[str, Any]) -> xbmcgui.ListItem:
             pass
     return li
 
+
+
+class AsyncLoader:
+    """Small worker loader for Kodi GUI network calls.
+
+    Network/API work happens away from the GUI code path, while Kodi controls are
+    only updated after the worker has finished. This keeps the GUI architecture
+    cleaner and reduces focus/playback crashes caused by long blocking calls.
+    """
+    def __init__(self, owner=None):
+        self.owner = owner
+
+    def json(self, endpoint: str, label: str = "Loading...", timeout: int = 20, memory_ttl: int = 0, use_disk_cache: bool = False) -> Any:
+        url = xc_api_url(endpoint)
+        box = {"done": False, "data": None, "error": None}
+
+        def worker():
+            try:
+                if memory_ttl > 0:
+                    box["data"] = http_get_json_memory(url, timeout=timeout, ttl=memory_ttl)
+                else:
+                    box["data"] = http_get_json(url, timeout=timeout, use_cache=use_disk_cache)
+            except Exception as exc:
+                box["error"] = exc
+                log("Async load failed:\n" + traceback.format_exc(), xbmc.LOGERROR)
+            finally:
+                box["done"] = True
+
+        thread = threading.Thread(target=worker, name="BetaMedia4uLoader")
+        thread.daemon = True
+        progress = xbmcgui.DialogProgress()
+        try:
+            progress.create(ADDON_NAME, label)
+            thread.start()
+            tick = 0
+            while not box["done"]:
+                if progress.iscanceled():
+                    raise RuntimeError("User cancelled loading")
+                tick = (tick + 3) % 95
+                progress.update(tick, label)
+                xbmc.sleep(80)
+            if box["error"]:
+                raise box["error"]
+            return box["data"]
+        finally:
+            try:
+                progress.close()
+            except Exception:
+                pass
+
+
+class GuiStateManager:
+    """Owns saving and restoring the custom GUI state around playback."""
+    RESTORE_PROP = "betamedia4u_restore_gui"
+
+    def __init__(self, window):
+        self.window = window
+
+    def save(self) -> None:
+        w = self.window
+        try:
+            state = {
+                "section": w.current_section,
+                "content_type": w.current_content_type,
+                "title": w.current_title,
+                "active_screen": w.active_screen,
+                "cat_id": w.current_cat_id,
+                "cat_label": w.current_cat_label,
+                "nav": w.list_state(w.nav),
+                "categories": w.list_state(w.categories),
+                "items": w.list_state(w.items),
+                "nav_pos": w.selected_pos(w.nav),
+                "cat_pos": w.selected_pos(w.categories),
+                "item_pos": w.selected_pos(w.items),
+            }
+            write_json_file(GUI_STATE_FILE, state)
+            xbmcgui.Window(10000).setProperty(self.RESTORE_PROP, "true")
+        except Exception:
+            log("Could not save GUI state:\n" + traceback.format_exc(), xbmc.LOGWARNING)
+
+    def restore(self) -> bool:
+        w = self.window
+        try:
+            if xbmcgui.Window(10000).getProperty(self.RESTORE_PROP) != "true":
+                return False
+            data = read_json_file(GUI_STATE_FILE, {})
+            xbmcgui.Window(10000).clearProperty(self.RESTORE_PROP)
+            if not isinstance(data, dict):
+                return False
+            w.current_section = data.get("section") or "home"
+            w.current_content_type = data.get("content_type") or ""
+            w.current_title = data.get("title") or "Media4u TV"
+            w.current_cat_id = data.get("cat_id") or ""
+            w.current_cat_label = data.get("cat_label") or ""
+            w.fill_list(w.nav, [li_from_state(x) for x in data.get("nav", [])] or [])
+            if w.nav.size() == 0:
+                w.setup_nav()
+            w.fill_list(w.categories, [li_from_state(x) for x in data.get("categories", [])])
+            w.fill_list(w.items, [li_from_state(x) for x in data.get("items", [])])
+            w.set_header(w.current_title, "Returned to where playback started")
+            w.set_details("Welcome back", "You are back where you were before playback.", ADDON.getAddonInfo("icon"))
+            screen = data.get("active_screen") or "nav"
+            if screen == "items" and w.items.size() == 0:
+                screen = "categories" if w.categories.size() else "nav"
+            if screen == "categories" and w.categories.size() == 0:
+                screen = "nav"
+            w.focus_screen(screen)
+            try:
+                if w.active_screen == "nav":
+                    w.nav.selectItem(max(0, int(data.get("nav_pos", 0))))
+                elif w.active_screen == "categories":
+                    w.categories.selectItem(max(0, int(data.get("cat_pos", 0))))
+                elif w.active_screen == "items":
+                    w.items.selectItem(max(0, int(data.get("item_pos", 0))))
+            except Exception:
+                pass
+            return True
+        except Exception:
+            log("Could not restore GUI state:\n" + traceback.format_exc(), xbmc.LOGWARNING)
+            return False
+
+
+class NavigationHistory:
+    """Real in-GUI history stack, separate from the screen drawing code."""
+    def __init__(self, window):
+        self.window = window
+        self.stack = []
+
+    def snapshot(self):
+        w = self.window
+        cats = [w.categories.getListItem(i) for i in range(w.categories.size())]
+        items = [w.items.getListItem(i) for i in range(w.items.size())]
+        return (w.current_section, w.current_content_type, w.current_title, w.current_cat_id, w.current_cat_label, cats, items, w.active_screen)
+
+    def push(self) -> None:
+        try:
+            self.stack.append(self.snapshot())
+            if len(self.stack) > 40:
+                self.stack = self.stack[-40:]
+        except Exception:
+            log("Navigation push failed", xbmc.LOGWARNING)
+
+    def pop(self) -> bool:
+        if not self.stack:
+            return False
+        w = self.window
+        try:
+            section, content_type, title, cat_id, cat_label, cats, items, screen = self.stack.pop()
+            w.current_section = section
+            w.current_content_type = content_type
+            w.current_cat_id = cat_id
+            w.current_cat_label = cat_label
+            w.fill_list(w.categories, cats)
+            w.fill_list(w.items, items)
+            w.set_header(title, "")
+            if screen == "items" and items:
+                w.focus_screen("items")
+            elif screen == "categories" and cats:
+                w.focus_screen("categories")
+            elif items:
+                w.focus_screen("items")
+            elif cats:
+                w.focus_screen("categories")
+            else:
+                w.focus_screen("nav")
+            return True
+        except Exception:
+            log("Navigation restore failed:\n" + traceback.format_exc(), xbmc.LOGERROR)
+            return False
+
+
+class PlaybackManager:
+    """Playback handoff isolated from the GUI."""
+    def __init__(self, window):
+        self.window = window
+
+    def play(self, li: xbmcgui.ListItem) -> None:
+        w = self.window
+        url = (li.getProperty("play_url") or "").strip()
+        name = li.getProperty("name") or li.getLabel() or "Stream"
+        thumb = li.getProperty("thumb") or ""
+        if not url:
+            notify("No playable URL", icon=xbmcgui.NOTIFICATION_ERROR)
+            return
+        if not url.lower().startswith(("http://", "https://")):
+            notify("Bad stream URL", icon=xbmcgui.NOTIFICATION_ERROR)
+            log(f"Playback blocked, unsupported URL for {name}: {url}", xbmc.LOGERROR)
+            return
+        try:
+            item = xbmcgui.ListItem(label=name, path=url)
+            set_art(item, thumb)
+            item.setInfo("video", {"title": name})
+            item.setProperty("IsPlayable", "true")
+            try:
+                item.setContentLookup(False)
+            except Exception:
+                pass
+            lower = url.lower()
+            if lower.endswith(".m3u8"):
+                try: item.setMimeType("application/vnd.apple.mpegurl")
+                except Exception: pass
+            elif lower.endswith(".ts"):
+                try: item.setMimeType("video/mp2t")
+                except Exception: pass
+            # Save GUI position, then hand playback to Kodi and return immediately.
+            # Do NOT keep the plugin route blocked while the stream plays, because Kodi
+            # will keep showing the "Working..." spinner until this callback exits.
+            w.state_manager.save()
+            root = xbmcgui.Window(10000)
+            root.setProperty("betamedia4u_playback_pending", "true")
+            root.setProperty("betamedia4u_playback_started", "false")
+            root.setProperty("betamedia4u_playback_started_at", str(int(time.time())))
+            log(f"Opening stream via PlaybackManager: {name}")
+            w.set_busy(False)
+            try:
+                xbmc.executebuiltin("Dialog.Close(busydialog,true)")
+                xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
+            except Exception:
+                pass
+            w.close_gui_safely()
+            xbmc.sleep(120)
+            player = xbmc.Player()
+            player.play(url, item, False)
+            xbmc.sleep(120)
+            try:
+                xbmc.executebuiltin("Dialog.Close(busydialog,true)")
+                xbmc.executebuiltin("Dialog.Close(busydialognocancel,true)")
+                xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
+            except Exception:
+                pass
+            return
+        except Exception:
+            log("PlaybackManager failed:\n" + traceback.format_exc(), xbmc.LOGERROR)
+            notify("Stream failed to open", icon=xbmcgui.NOTIFICATION_ERROR)
+            try:
+                w.set_busy(False)
+                w.focus_active_list()
+            except Exception:
+                pass
+
+
+class KodiActionMapper:
+    """Maps remote, keyboard and mouse actions into stable GUI commands."""
+    def __init__(self):
+        self.context_ids = {117, 101}
+        for name in ("ACTION_CONTEXT_MENU", "ACTION_MOUSE_RIGHT_CLICK"):
+            if hasattr(xbmcgui, name):
+                self.context_ids.add(getattr(xbmcgui, name))
+        self.back_ids = {9, 10, 92}
+        for name in ("ACTION_NAV_BACK", "ACTION_PREVIOUS_MENU", "ACTION_PARENT_DIR", "ACTION_PARENTDIR"):
+            if hasattr(xbmcgui, name):
+                self.back_ids.add(getattr(xbmcgui, name))
+        self.select_ids = {xbmcgui.ACTION_SELECT_ITEM, xbmcgui.ACTION_MOUSE_LEFT_CLICK, 7, 100}
+        for name in ("ACTION_ENTER", "ACTION_PLAYER_PLAY"):
+            if hasattr(xbmcgui, name):
+                self.select_ids.add(getattr(xbmcgui, name))
+
+    def classify(self, action_id: int) -> str:
+        if action_id in self.context_ids:
+            return "context"
+        if action_id in self.back_ids:
+            return "back"
+        if action_id in self.select_ids:
+            return "select"
+        if action_id == xbmcgui.ACTION_MOVE_DOWN:
+            return "down"
+        if action_id in (xbmcgui.ACTION_MOVE_LEFT, xbmcgui.ACTION_MOVE_RIGHT, xbmcgui.ACTION_MOVE_UP, xbmcgui.ACTION_MOVE_DOWN):
+            return "move"
+        return "other"
+
 class ModernHomeWindow(xbmcgui.WindowXMLDialog):
     CONTROL_NAV = 100
     CONTROL_CATEGORIES = 110
@@ -794,6 +1066,11 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
         self._last_action_time = 0
         self._is_busy = False
         self._allow_close = False
+        self.loader = AsyncLoader(self)
+        self.state_manager = GuiStateManager(self)
+        self.nav_history = NavigationHistory(self)
+        self.playback_manager = PlaybackManager(self)
+        self.action_mapper = KodiActionMapper()
         self.setup_nav()
         if self.restore_after_playback():
             return
@@ -889,85 +1166,16 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
             return 0
 
     def save_playback_state(self) -> None:
-        try:
-            state = {
-                "section": self.current_section,
-                "content_type": self.current_content_type,
-                "title": self.current_title,
-                "active_screen": self.active_screen,
-                "cat_id": self.current_cat_id,
-                "cat_label": self.current_cat_label,
-                "nav": self.list_state(self.nav),
-                "categories": self.list_state(self.categories),
-                "items": self.list_state(self.items),
-                "nav_pos": self.selected_pos(self.nav),
-                "cat_pos": self.selected_pos(self.categories),
-                "item_pos": self.selected_pos(self.items),
-            }
-            write_json_file(GUI_STATE_FILE, state)
-            xbmcgui.Window(10000).setProperty("media4u_restore_gui", "true")
-        except Exception as exc:
-            log(f"Could not save GUI state: {exc}", xbmc.LOGWARNING)
+        self.state_manager.save()
 
     def restore_after_playback(self) -> bool:
-        try:
-            if xbmcgui.Window(10000).getProperty("media4u_restore_gui") != "true":
-                return False
-            data = read_json_file(GUI_STATE_FILE, {})
-            xbmcgui.Window(10000).clearProperty("media4u_restore_gui")
-            if not isinstance(data, dict):
-                return False
-            self.current_section = data.get("section") or "home"
-            self.current_content_type = data.get("content_type") or ""
-            self.current_title = data.get("title") or "Media4u TV"
-            self.current_cat_id = data.get("cat_id") or ""
-            self.current_cat_label = data.get("cat_label") or ""
-            self.fill_list(self.nav, [li_from_state(x) for x in data.get("nav", [])] or [])
-            if self.nav.size() == 0:
-                self.setup_nav()
-            self.fill_list(self.categories, [li_from_state(x) for x in data.get("categories", [])])
-            self.fill_list(self.items, [li_from_state(x) for x in data.get("items", [])])
-            self.set_header(self.current_title, "Returned from playback")
-            self.set_details("Welcome back", "You are back where you were before playback.", ADDON.getAddonInfo("icon"))
-            screen = data.get("active_screen") or "nav"
-            if screen == "items" and self.items.size() == 0:
-                screen = "categories" if self.categories.size() else "nav"
-            if screen == "categories" and self.categories.size() == 0:
-                screen = "nav"
-            self.focus_screen(screen)
-            try:
-                if self.active_screen == "nav":
-                    self.nav.selectItem(max(0, int(data.get("nav_pos", 0))))
-                elif self.active_screen == "categories":
-                    self.categories.selectItem(max(0, int(data.get("cat_pos", 0))))
-                elif self.active_screen == "items":
-                    self.items.selectItem(max(0, int(data.get("item_pos", 0))))
-            except Exception:
-                pass
-            return True
-        except Exception as exc:
-            log(f"Could not restore GUI state: {exc}", xbmc.LOGWARNING)
-            return False
+        return self.state_manager.restore()
 
     def push_state(self) -> None:
-        self.history.append(self.snapshot())
+        self.nav_history.push()
 
     def restore_state(self) -> bool:
-        if not self.history:
-            return False
-        section, content_type, title, cats, items = self.history.pop()
-        self.current_section = section
-        self.current_content_type = content_type
-        self.fill_list(self.categories, cats)
-        self.fill_list(self.items, items)
-        self.set_header(title, "Returned to previous screen")
-        if items:
-            self.focus_screen("items")
-        elif cats:
-            self.focus_screen("categories")
-        else:
-            self.focus_screen("nav")
-        return True
+        return self.nav_history.pop()
 
     def loading(self, message: str) -> xbmcgui.DialogProgress:
         progress = xbmcgui.DialogProgress()
@@ -999,11 +1207,7 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
     def load_categories(self, content_type: str) -> None:
         endpoint, title = gui_endpoint_for_categories(content_type)
         self.current_content_type = content_type
-        progress = self.loading(f"Loading {title} categories...")
-        try:
-            data = http_get_json(xc_api_url(endpoint), use_cache=False)
-        finally:
-            progress.close()
+        data = self.loader.json(endpoint, f"Loading {title} categories...", timeout=18, use_disk_cache=False)
         cats: List[xbmcgui.ListItem] = []
         if isinstance(data, list):
             all_li = gui_li("All", "")
@@ -1042,9 +1246,8 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
         label = li.getLabel()
         self.current_cat_id = cat_id or ""
         self.current_cat_label = label or ""
-        progress = self.loading(f"Loading {label}...")
         try:
-            data = http_get_json_memory(xc_api_url(gui_endpoint_for_streams(content_type, cat_id)), timeout=15, ttl=3)
+            data = self.loader.json(gui_endpoint_for_streams(content_type, cat_id), f"Loading {label}...", timeout=18, memory_ttl=3)
             self.push_state()
             self.fill_list(self.items, self.add_back_first(self.make_content_items(content_type, data)))
             self.set_header(label, "")
@@ -1054,10 +1257,6 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
             notify("Could not load category", icon=xbmcgui.NOTIFICATION_ERROR)
             self.focus_active_list()
         finally:
-            try:
-                progress.close()
-            except Exception:
-                pass
             self.set_busy(False)
 
     def make_content_items(self, content_type: str, data: Any) -> List[xbmcgui.ListItem]:
@@ -1107,11 +1306,7 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
 
     def load_recent(self) -> None:
         self.current_content_type = "vod"
-        progress = self.loading("Loading recently added movies...")
-        try:
-            data = http_get_json_memory(xc_api_url("player_api.php?action=get_vod_streams"), ttl=5)
-        finally:
-            progress.close()
+        data = self.loader.json("player_api.php?action=get_vod_streams", "Loading recently added movies...", timeout=18, memory_ttl=5)
         if isinstance(data, list):
             data = sorted(data, key=lambda i: safe_int(i.get("added")), reverse=True)[:200]
         self.fill_list(self.categories, [self.placeholder("Recently Added", "Newest movies from the API")])
@@ -1149,7 +1344,7 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
         try:
             for idx, (label, endpoint, kind) in enumerate(sources):
                 progress.update(int(idx / max(len(sources), 1) * 100), f"Searching {label}...")
-                data = http_get_json_memory(xc_api_url(endpoint), ttl=5)
+                data = self.loader.json(endpoint, f"Searching {label}...", timeout=20, memory_ttl=5)
                 if not isinstance(data, list):
                     continue
                 matches = [i for i in data if isinstance(i, dict) and matches_term(i, term)]
@@ -1240,11 +1435,7 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
 
     def load_series_seasons(self, series_id: str) -> None:
         self.push_state()
-        progress = self.loading("Loading seasons...")
-        try:
-            data = http_get_json(xc_api_url(f"player_api.php?action=get_series_info&series_id={quote(series_id)}"), use_cache=False)
-        finally:
-            progress.close()
+        data = self.loader.json(f"player_api.php?action=get_series_info&series_id={quote(series_id)}", "Loading seasons...", timeout=18, use_disk_cache=False)
         cats: List[xbmcgui.ListItem] = []
         if isinstance(data, dict):
             seasons = data.get("seasons") or []
@@ -1271,11 +1462,7 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
             return
         series_id = li.getProperty("series_id")
         season = li.getProperty("season")
-        progress = self.loading("Loading episodes...")
-        try:
-            data = http_get_json(xc_api_url(f"player_api.php?action=get_series_info&series_id={quote(series_id)}"), use_cache=False)
-        finally:
-            progress.close()
+        data = self.loader.json(f"player_api.php?action=get_series_info&series_id={quote(series_id)}", "Loading episodes...", timeout=18, use_disk_cache=False)
         out: List[xbmcgui.ListItem] = []
         if isinstance(data, dict):
             episodes = (data.get("episodes") or {}).get(str(season)) or []
@@ -1300,71 +1487,52 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
         self.set_header(f"Season {season}", "")
         self.focus_screen("items")
 
-    def play_item(self, li: xbmcgui.ListItem) -> None:
-        """Start playback safely from the custom GUI.
+    def save_focus_marker(self) -> None:
+        """Save the exact visible row before playback or window focus changes."""
+        try:
+            marker = {
+                "active_screen": self.active_screen,
+                "nav_pos": self.selected_pos(self.nav),
+                "cat_pos": self.selected_pos(self.categories),
+                "item_pos": self.selected_pos(self.items),
+                "title": self.current_title,
+            }
+            xbmcgui.Window(10000).setProperty("betamedia4u_focus_marker", json.dumps(marker))
+        except Exception:
+            pass
 
-        Kodi can crash if a WindowXMLDialog is left open over fullscreen video or
-        if the same dialog tries to reopen itself while Kodi is tearing down
-        playback. This method saves state, closes the GUI cleanly, starts the
-        player, and lets the user reopen the add-on to restore the same place.
-        """
+    def restore_focus_marker(self) -> None:
+        """Restore keyboard/remote focus after Windows alt-tab or Kodi window refocus."""
+        try:
+            raw = xbmcgui.Window(10000).getProperty("betamedia4u_focus_marker")
+            marker = json.loads(raw) if raw else {}
+            screen = marker.get("active_screen") or self.active_screen or "nav"
+            if screen == "items" and self.items.size() == 0:
+                screen = "categories" if self.categories.size() else "nav"
+            if screen == "categories" and self.categories.size() == 0:
+                screen = "nav"
+            self.focus_screen(screen)
+            if screen == "items":
+                self.items.selectItem(min(max(0, int(marker.get("item_pos", 0))), max(0, self.items.size() - 1)))
+            elif screen == "categories":
+                self.categories.selectItem(min(max(0, int(marker.get("cat_pos", 0))), max(0, self.categories.size() - 1)))
+            else:
+                self.nav.selectItem(min(max(0, int(marker.get("nav_pos", 0))), max(0, self.nav.size() - 1)))
+            self.update_details_from_focus()
+        except Exception:
+            self.focus_active_list()
+
+    def play_item(self, li: xbmcgui.ListItem) -> None:
         if getattr(self, "_is_busy", False):
             return
         self.set_busy(True)
-        url = (li.getProperty("play_url") or "").strip()
-        name = li.getProperty("name") or li.getLabel() or "Stream"
-        thumb = li.getProperty("thumb") or ""
-        if not url:
-            self.set_busy(False)
-            notify("No playable URL", icon=xbmcgui.NOTIFICATION_ERROR)
-            log(f"Playback blocked, empty URL for {name}", xbmc.LOGERROR)
-            return
-        if not (url.lower().startswith("http://") or url.lower().startswith("https://")):
-            self.set_busy(False)
-            notify("Bad stream URL", icon=xbmcgui.NOTIFICATION_ERROR)
-            log(f"Playback blocked, unsupported URL for {name}: {url}", xbmc.LOGERROR)
-            return
-
         try:
-            item = xbmcgui.ListItem(label=name, path=url)
-            set_art(item, thumb)
-            item.setInfo("video", {"title": name})
-            item.setProperty("IsPlayable", "true")
+            self.save_focus_marker()
+            self.playback_manager.play(li)
+        finally:
+            # PlaybackManager may close the GUI. If it does not, make sure the UI is usable again.
             try:
-                item.setContentLookup(False)
-            except Exception:
-                pass
-            if url.lower().endswith(".m3u8"):
-                try:
-                    item.setMimeType("application/vnd.apple.mpegurl")
-                except Exception:
-                    pass
-            elif url.lower().endswith(".ts"):
-                try:
-                    item.setMimeType("video/mp2t")
-                except Exception:
-                    pass
-
-            self.save_playback_state()
-            log(f"Opening stream safely: {name}")
-            self.set_busy(False)
-            try:
-                self.close_gui_safely()
-                xbmc.sleep(350)
-            except Exception:
-                pass
-            xbmc.Player().play(url, item, False)
-            xbmc.sleep(300)
-            try:
-                xbmc.executebuiltin("ActivateWindow(fullscreenvideo)")
-            except Exception:
-                pass
-        except Exception as exc:
-            self.set_busy(False)
-            log(f"Playback failed for {name}: {exc}", xbmc.LOGERROR)
-            notify("Stream failed to open", icon=xbmcgui.NOTIFICATION_ERROR)
-            try:
-                self.focus_active_list()
+                self.set_busy(False)
             except Exception:
                 pass
 
@@ -1636,53 +1804,48 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
 
     def onAction(self, action) -> None:
         action_id = action.getId()
+        command = self.action_mapper.classify(action_id)
         top_controls = (self.CONTROL_SEARCH, self.CONTROL_SETTINGS, self.CONTROL_BACK)
         try:
             focus_id = self.getFocusId()
         except Exception:
             focus_id = -1
 
-        # Fix keyboard/remote focus trap: when focus is on Search/Settings/Back, DOWN always returns to the visible list.
-        if action_id == xbmcgui.ACTION_MOVE_DOWN and focus_id in top_controls:
+        # Windows can return Kodi focus without a focused control after alt-tab or
+        # clicking the Kodi window border. Recover focus before handling keys.
+        if focus_id in (-1, 0, None):
+            self.restore_focus_marker()
+            try:
+                focus_id = self.getFocusId()
+            except Exception:
+                focus_id = -1
+
+        if command in ("move", "select", "context"):
+            self.save_focus_marker()
+
+        if command == "down" and focus_id in top_controls:
             self.focus_active_list()
             return
 
-        # If Kodi focus somehow lands on a hidden list after playback/settings, recover to the visible list.
-        if action_id in (xbmcgui.ACTION_MOVE_LEFT, xbmcgui.ACTION_MOVE_RIGHT, xbmcgui.ACTION_MOVE_UP, xbmcgui.ACTION_MOVE_DOWN):
+        if command == "move":
             if self.active_screen == "items" and focus_id in (self.CONTROL_NAV, self.CONTROL_CATEGORIES):
-                self.focus_active_list()
-                return
+                self.focus_active_list(); return
             if self.active_screen == "categories" and focus_id in (self.CONTROL_NAV, self.CONTROL_ITEMS):
-                self.focus_active_list()
-                return
+                self.focus_active_list(); return
             if self.active_screen == "nav" and focus_id in (self.CONTROL_CATEGORIES, self.CONTROL_ITEMS):
-                self.focus_active_list()
-                return
+                self.focus_active_list(); return
 
-        context_ids = [117, 101]
-        for maybe_name in ("ACTION_CONTEXT_MENU", "ACTION_MOUSE_RIGHT_CLICK"):
-            if hasattr(xbmcgui, maybe_name):
-                context_ids.append(getattr(xbmcgui, maybe_name))
-        if action_id in tuple(context_ids):
+        if command == "context":
             if self.allow_action():
                 self.show_context_menu()
             return
 
-        back_ids = []
-        for maybe_name in ("ACTION_NAV_BACK", "ACTION_PREVIOUS_MENU", "ACTION_PARENT_DIR", "ACTION_PARENTDIR"):
-            if hasattr(xbmcgui, maybe_name):
-                back_ids.append(getattr(xbmcgui, maybe_name))
-        back_ids.extend([9, 10, 92])
-        if action_id in tuple(set(back_ids)):
-            if self.allow_action(120):
+        if command == "back":
+            if self.allow_action(160):
                 self.go_back()
             return
-        select_actions = [xbmcgui.ACTION_SELECT_ITEM, xbmcgui.ACTION_MOUSE_LEFT_CLICK]
-        for maybe_name in ("ACTION_ENTER", "ACTION_PLAYER_PLAY"):
-            if hasattr(xbmcgui, maybe_name):
-                select_actions.append(getattr(xbmcgui, maybe_name))
-        select_actions.extend([7, 100])
-        if action_id in tuple(select_actions):
+
+        if command == "select":
             if not self.allow_action():
                 return
             try:
@@ -1693,8 +1856,16 @@ class ModernHomeWindow(xbmcgui.WindowXMLDialog):
                     self.handle_category_action()
                 elif focus == self.CONTROL_ITEMS:
                     self.handle_item_action()
-            except Exception as exc:
-                log(f"GUI action failed: {exc}", xbmc.LOGERROR)
+                elif focus == self.CONTROL_SEARCH:
+                    self.show_search_panel()
+                elif focus == self.CONTROL_SETTINGS:
+                    ADDON.openSettings()
+                elif focus == self.CONTROL_BACK:
+                    self.go_back()
+                else:
+                    self.focus_active_list()
+            except Exception:
+                log("GUI action failed:\n" + traceback.format_exc(), xbmc.LOGERROR)
                 notify("Action failed", icon=xbmcgui.NOTIFICATION_ERROR)
             return
         self.update_details_from_focus()
